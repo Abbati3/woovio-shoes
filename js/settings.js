@@ -70,7 +70,7 @@ function renderSettingsView() {
 
       <div class="field-group">
         <div class="field-group-label">Customer View</div>
-        <p class="hint">Show a customer what you have without showing them your cost, profit, or where anything is kept. Only pairs you can hand over on the spot appear — nothing already sold, and nothing sitting with a partner.${isLockEnabled() ? ' Your passcode is needed to leave it.' : ''}</p>
+        <p class="hint">Show a customer what you have without showing them your cost, profit, or where anything is kept. Every unsold pair appears, wherever it is being kept.${isLockEnabled() ? ' Your passcode is needed to leave it.' : ''}</p>
         <div style="padding:0 16px 14px;">
           <button class="btn btn-outline" style="width:100%;" onclick="enterCustomerView()">Show customer view</button>
         </div>

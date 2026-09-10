@@ -68,12 +68,9 @@ function renderStockHeader() {
 }
 
 function matchesFilter(sh) {
-  // Customer view shows only what you can hand over on the spot — in stock and
-  // at one of your own places, not sitting in a partner's shop.
-  if (_customerView) {
-    if (sh.status !== 'in_stock') return false;
-    if (isPartnerLocation(getSettings(), sh.location)) return false;
-  }
+  // Customer view shows everything still unsold, wherever it is kept. Stock at
+  // a partner's shop is yours and you can fetch it, so it is available to sell.
+  if (_customerView && sh.status !== 'in_stock') return false;
   if (_filter.status !== 'all'  && sh.status !== _filter.status)     return false;
   if (_filter.location !== 'all' && sh.location !== _filter.location) return false;
   if (_filter.size !== 'all'    && String(sh.size) !== _filter.size)  return false;

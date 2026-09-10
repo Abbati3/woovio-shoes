@@ -99,6 +99,34 @@ button { font-family: inherit; }
 .page-header h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
 .page-header .subtitle { font-size: 12px; color: var(--gold-lt); margin-top: 1px; }
 
+.hdr-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hdr-action {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hdr-action:active { background: rgba(201,168,76,0.18); }
+
+/* ── Customer view: a clean catalogue, no business figures ── */
+body.customer-view #bottom-nav { display: none; }
+body.customer-view #view-container { padding-bottom: calc(16px + var(--safe-bot)); }
+body.customer-view #fab { display: none !important; }
+body.customer-view .grid { padding-bottom: 24px; }
+
+.d-price {
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  padding: 6px 0 18px;
+}
+
 .hdr-back {
   background: none; border: none; color: #fff;
   padding: 0; cursor: pointer; display: flex; align-items: center;
@@ -160,6 +188,25 @@ button { font-family: inherit; }
   -webkit-appearance: none;
   appearance: none;
 }
+/* Outlined while narrowing the grid, so hidden stock is never a mystery */
+.filter-selects select.select-on {
+  border-color: var(--gold);
+  font-weight: 600;
+}
+
+.clear-filters {
+  display: block;
+  margin: 8px auto 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.clear-filters:active { color: var(--dark); }
 
 /* ── Photo grid — the point of the app ── */
 .grid {
@@ -613,12 +660,23 @@ body:has(#view-stock.active) #fab { display: flex; }
 }
 .sheet-panel.open { transform: translateY(0); }
 
+/* Widened hit area: the visible bar is small but the whole strip is grabbable */
 .sheet-handle {
-  width: 36px; height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  margin: 0 auto 16px;
+  width: 100%;
+  padding: 2px 0 14px;
+  margin: -4px 0 4px;
+  cursor: grab;
+  touch-action: none;
 }
+.sheet-handle::before {
+  content: '';
+  display: block;
+  width: 40px; height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  margin: 0 auto;
+}
+.sheet-panel:active .sheet-handle { cursor: grabbing; }
 
 .d-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
 .d-title { font-size: 18px; font-weight: 700; line-height: 1.25; }

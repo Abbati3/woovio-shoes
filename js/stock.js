@@ -10,10 +10,64 @@ async function loadShoes() {
   return _allShoes;
 }
 
+// ── Customer view ──────────────────────────────────────────────────────────
+//
+// For showing a customer what is available without showing them what you paid
+// or what you are owed. Deliberately not persisted: a fresh start is always
+// the full app, so you can never leave it on by accident overnight.
+let _customerView = false;
+
+function isCustomerView() { return _customerView; }
+
+async function enterCustomerView() {
+  _customerView = true;
+  document.body.classList.add('customer-view');
+  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '' };
+  const se = document.getElementById('stock-search');
+  if (se) se.value = '';
+  navigate('stock');
+  await renderStock();
+  toast('Customer view — cost and takings hidden', 'success');
+}
+
+function exitCustomerView() {
+  const done = () => {
+    _customerView = false;
+    document.body.classList.remove('customer-view');
+    renderStock();
+  };
+  // If a passcode exists, use it here too — otherwise a customer holding the
+  // phone could simply tap out of this mode and see your margins.
+  if (typeof isLockEnabled === 'function' && isLockEnabled()) lockNow(done);
+  else done();
+}
+
 async function renderStock() {
   await loadShoes();
+  renderStockHeader();
   renderFilters();
   renderGrid();
+}
+
+function renderStockHeader() {
+  const el = document.getElementById('stock-header');
+  if (!el) return;
+  const s = getSettings() || {};
+  el.innerHTML = _customerView
+    ? `<div class="hdr-row">
+         <div>
+           <h1>${esc(s.businessName || 'Available')}</h1>
+           <div class="subtitle" id="stock-tally"></div>
+         </div>
+         <button class="hdr-action" onclick="exitCustomerView()">Done</button>
+       </div>`
+    : `<div class="hdr-row">
+         <div>
+           <h1>Stock</h1>
+           <div class="subtitle" id="stock-tally"></div>
+         </div>
+         <button class="hdr-action" onclick="enterCustomerView()">Show customer</button>
+       </div>`;
 }
 
 function matchesFilter(sh) {
@@ -40,31 +94,66 @@ function renderFilters() {
     `<button class="chip ${_filter.status===v?'chip-on':''}" onclick="setFilter('status','${v}')">${label}</button>`
   ).join('');
 
-  document.getElementById('stock-filters').innerHTML = `
+  // An active select is outlined, so a filter that is hiding stock is obvious
+  const sizeSelect = `
+    <select class="${_filter.size!=='all' ? 'select-on' : ''}" onchange="setFilter('size', this.value)">
+      <option value="all" ${_filter.size==='all'?'selected':''}>All sizes</option>
+      ${sizes.map(sz => `<option value="${esc(sz)}" ${_filter.size===sz?'selected':''}>Size ${esc(sz)}</option>`).join('')}
+    </select>`;
+
+  const clearRow = filtersActive()
+    ? `<button class="clear-filters" onclick="clearFilters()">Clear filters ×</button>` : '';
+
+  // A customer only needs to browse by size — where a pair is kept, and
+  // whether anything has sold, are none of their business.
+  document.getElementById('stock-filters').innerHTML = _customerView
+    ? `<div class="filter-selects">${sizeSelect}</div>${clearRow}`
+    : `
     <div class="chip-row">${statusChips}</div>
     <div class="filter-selects">
-      <select onchange="setFilter('location', this.value)">
+      <select class="${_filter.location!=='all' ? 'select-on' : ''}" onchange="setFilter('location', this.value)">
         <option value="all" ${_filter.location==='all'?'selected':''}>All places</option>
         ${(s.locations||[]).map(l =>
           `<option value="${esc(l.name)}" ${_filter.location===l.name?'selected':''}>${esc(l.name)}</option>`).join('')}
       </select>
-      <select onchange="setFilter('size', this.value)">
-        <option value="all" ${_filter.size==='all'?'selected':''}>All sizes</option>
-        ${sizes.map(sz => `<option value="${esc(sz)}" ${_filter.size===sz?'selected':''}>Size ${esc(sz)}</option>`).join('')}
-      </select>
+      ${sizeSelect}
     </div>
+    ${clearRow}
   `;
 }
 
 function setFilter(key, value) {
+  // Tapping the chip that is already on turns it off, rather than doing nothing
+  if (key === 'status' && _filter.status === value && value !== 'all') value = 'all';
   _filter[key] = value;
   renderFilters();
   renderGrid();
 }
 
+// "In stock" is the resting state, not a filter the user chose
+function filtersActive() {
+  return _filter.location !== 'all'
+      || _filter.size !== 'all'
+      || !!_filter.q
+      || (!_customerView && _filter.status !== 'in_stock');
+}
+
+function clearFilters() {
+  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '' };
+  const se = document.getElementById('stock-search');
+  if (se) se.value = '';
+  const cb = document.getElementById('stock-clear');
+  if (cb) cb.style.display = 'none';
+  renderFilters();
+  renderGrid();
+}
+
 function searchStock(q) {
+  const had = filtersActive();
   _filter.q = q;
   document.getElementById('stock-clear').style.display = q ? '' : 'none';
+  // Only redraw the filter row when the clear button needs to appear or go
+  if (filtersActive() !== had) renderFilters();
   renderGrid();
 }
 
@@ -103,11 +192,33 @@ function renderGrid() {
     return;
   }
 
-  const value = shown.reduce((sum, sh) =>
-    sum + (sh.status === 'in_stock' ? expectedOf(sh) : proceedsOf(sh)), 0);
-  tally.textContent = `${shown.length} pair${shown.length===1?'':'s'} · ${fmtNaira(value)}`;
+  if (_customerView) {
+    tally.textContent = `${shown.length} pair${shown.length===1?'':'s'} available`;
+  } else {
+    const value = shown.reduce((sum, sh) =>
+      sum + (sh.status === 'in_stock' ? expectedOf(sh) : proceedsOf(sh)), 0);
+    tally.textContent = `${shown.length} pair${shown.length===1?'':'s'} · ${fmtNaira(value)}`;
+  }
 
   grid.innerHTML = shown.map(sh => {
+    // The customer sees the asking price only — never the agreed figure a
+    // partner sends back, which is what expectedOf() would give.
+    if (_customerView) return `
+      <button class="tile" onclick="openShoe(${sh.id})">
+        <div class="tile-photo">
+          ${sh.photo
+            ? `<img src="${sh.photo}" alt="${esc(shoeTitle(sh))}" loading="lazy" />`
+            : `<div class="tile-nophoto">No photo</div>`}
+        </div>
+        <div class="tile-info">
+          <div class="tile-name">${esc(shoeTitle(sh))}</div>
+          <div class="tile-meta">
+            <span class="tile-size">${sh.size ? 'Size ' + esc(sh.size) : ''}</span>
+            <span class="tile-price">${fmtShort(sh.askingPrice)}</span>
+          </div>
+        </div>
+      </button>`;
+
     const sold  = sh.status === 'sold';
     const owed  = isOwed(sh);
     const aging = isAging(sh);
@@ -151,6 +262,31 @@ async function openShoe(id) {
   const existing = document.getElementById('sheet');
   if (existing) existing.remove();
 
+  // Customer variant: the pair and its price, nothing about the business
+  if (_customerView) {
+    const cust = document.createElement('div');
+    cust.id = 'sheet';
+    cust.innerHTML = `
+      <div class="sheet-overlay" onclick="closeSheet()"></div>
+      <div class="sheet-panel" id="sheet-panel">
+        <div class="sheet-handle"></div>
+        <div class="d-head">
+          <div>
+            <div class="d-title">${esc(shoeTitle(sh))}</div>
+            <div class="d-sub">${sh.size ? 'Size ' + esc(sh.size) : ''}${sh.colour ? ' · ' + esc(sh.colour) : ''}</div>
+          </div>
+        </div>
+        ${sh.photo ? `<img class="d-photo" src="${sh.photo}" alt="${esc(shoeTitle(sh))}" />` : ''}
+        <div class="d-price">${fmtNaira(sh.askingPrice)}</div>
+        <div class="sheet-actions">
+          <button class="btn btn-outline" style="width:100%;" onclick="closeSheet()">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(cust);
+    openSheet(cust);
+    return;
+  }
+
   const el = document.createElement('div');
   el.id = 'sheet';
   el.innerHTML = `
@@ -191,17 +327,69 @@ async function openShoe(id) {
           <button class="btn btn-outline" style="flex:1;" onclick="openEdit(${sh.id})">Edit</button>
           <button class="btn btn-outline" style="flex:1;color:var(--danger);border-color:var(--danger);" onclick="deleteShoe(${sh.id})">Delete</button>
         </div>
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Close</button>
       </div>
     </div>`;
   document.body.appendChild(el);
-  setTimeout(() => el.querySelector('#sheet-panel').classList.add('open'), 20);
+  openSheet(el);
+}
+
+// Every sheet is shown through here, so drag-to-dismiss is never forgotten on
+// a new one. The handle used to be decorative: with the panel up to 88vh tall
+// there was barely any overlay left to tap, so a tall sheet felt stuck.
+function openSheet(el) {
+  const panel = el.querySelector('#sheet-panel');
+  setTimeout(() => panel.classList.add('open'), 20);
+  makeSheetDraggable(panel);
+}
+
+function makeSheetDraggable(panel) {
+  let startY = 0, moved = 0, dragging = false;
+
+  const start = e => {
+    // Only from the top of the sheet, otherwise the drag fights the scroll
+    if (panel.scrollTop > 0) return;
+    dragging = true;
+    moved = 0;
+    startY = (e.touches ? e.touches[0] : e).clientY;
+    panel.style.transition = 'none';
+    if (!e.touches) {
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', end);
+    }
+  };
+
+  const move = e => {
+    if (!dragging) return;
+    moved = Math.max(0, (e.touches ? e.touches[0] : e).clientY - startY);
+    if (moved > 0) {
+      if (e.cancelable) e.preventDefault();
+      panel.style.transform = `translateY(${moved}px)`;
+    }
+  };
+
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', end);
+    panel.style.transition = '';
+    panel.style.transform  = '';
+    if (moved > 90) closeSheet();
+  };
+
+  panel.addEventListener('touchstart', start, { passive: true });
+  panel.addEventListener('touchmove',  move,  { passive: false });
+  panel.addEventListener('touchend',   end);
+  panel.addEventListener('touchcancel', end);
+  panel.addEventListener('mousedown',  start);
 }
 
 function closeSheet() {
   const el = document.getElementById('sheet');
   if (!el) return;
   const p = el.querySelector('#sheet-panel');
-  if (p) p.classList.remove('open');
+  if (p) { p.style.transition = ''; p.style.transform = ''; p.classList.remove('open'); }
   setTimeout(() => el.remove(), 250);
 }
 
@@ -551,7 +739,7 @@ async function openSell(id) {
       </div>
     </div>`;
   document.body.appendChild(el);
-  setTimeout(() => el.querySelector('#sheet-panel').classList.add('open'), 20);
+  openSheet(el);
 }
 
 async function confirmSell(id, partner) {
@@ -631,7 +819,7 @@ async function openMove(id) {
       </div>
     </div>`;
   document.body.appendChild(el);
-  setTimeout(() => el.querySelector('#sheet-panel').classList.add('open'), 20);
+  openSheet(el);
 }
 
 function onMoveLocationChange() {
@@ -675,7 +863,13 @@ function nudgeBackup(added) {
 
 window.renderStock       = renderStock;
 window.loadShoes         = loadShoes;
+window.isCustomerView    = isCustomerView;
+window.enterCustomerView = enterCustomerView;
+window.exitCustomerView  = exitCustomerView;
+window.openSheet         = openSheet;
 window.setFilter         = setFilter;
+window.clearFilters      = clearFilters;
+window.filtersActive     = filtersActive;
 window.searchStock       = searchStock;
 window.clearStockSearch  = clearStockSearch;
 window.renderGrid        = renderGrid;

@@ -10,11 +10,12 @@
   --danger:    #C0392B;
   --good:      #2E7D32;
   --radius:    12px;
-  --nav-h:     50px;
+  --nav-h:     46px;
   --safe-top:  env(safe-area-inset-top, 0px);
   --safe-bot:  env(safe-area-inset-bottom, 0px);
-  /* Sit the nav low: shave most of the home-indicator inset, keep a sliver */
-  --nav-pad-bot: max(calc(var(--safe-bot) - 22px), 2px);
+  /* Sit the nav low. Most of the home-indicator inset is dead space, but a
+     little has to stay or the indicator crosses the labels. */
+  --nav-pad-bot: max(calc(var(--safe-bot) - 24px), 2px);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -79,7 +80,7 @@ button { font-family: inherit; }
   -webkit-tap-highlight-color: transparent;
   transition: color 0.15s;
 }
-.nav-btn svg { width: 20px; height: 20px; stroke-width: 1.8; fill: none; stroke: currentColor; }
+.nav-btn svg { width: 19px; height: 19px; stroke-width: 1.8; fill: none; stroke: currentColor; }
 .nav-btn.active { color: var(--gold); }
 
 /* ── Views ── */

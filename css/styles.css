@@ -10,10 +10,11 @@
   --danger:    #C0392B;
   --good:      #2E7D32;
   --radius:    12px;
-  --nav-h:     58px;
+  --nav-h:     50px;
   --safe-top:  env(safe-area-inset-top, 0px);
   --safe-bot:  env(safe-area-inset-bottom, 0px);
-  --nav-pad-bot: max(calc(var(--safe-bot) - 18px), 4px);
+  /* Sit the nav low: shave most of the home-indicator inset, keep a sliver */
+  --nav-pad-bot: max(calc(var(--safe-bot) - 22px), 2px);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -67,18 +68,18 @@ button { font-family: inherit; }
   align-items: center;
   justify-content: center;
   height: var(--nav-h);
-  gap: 3px;
+  gap: 2px;
   background: none;
   border: none;
   color: #888;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 500;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: color 0.15s;
 }
-.nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; }
+.nav-btn svg { width: 20px; height: 20px; stroke-width: 1.8; fill: none; stroke: currentColor; }
 .nav-btn.active { color: var(--gold); }
 
 /* ── Views ── */
@@ -89,14 +90,14 @@ button { font-family: inherit; }
 .page-header {
   background: var(--dark);
   color: #fff;
-  padding: 20px 20px 16px;
-  padding-top: max(20px, calc(var(--safe-top) + 8px));
+  padding: 10px 18px 11px;
+  padding-top: max(10px, calc(var(--safe-top) + 4px));
   position: sticky;
   top: 0;
   z-index: 50;
 }
-.page-header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
-.page-header .subtitle { font-size: 13px; color: var(--gold-lt); margin-top: 2px; }
+.page-header h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
+.page-header .subtitle { font-size: 12px; color: var(--gold-lt); margin-top: 1px; }
 
 .hdr-back {
   background: none; border: none; color: #fff;

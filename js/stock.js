@@ -252,10 +252,16 @@ function renderForm(sh) {
           <div id="photo-preview" class="photo-preview">
             ${_photoData ? `<img src="${_photoData}" alt="" />` : `<div class="photo-empty">The photo is how you will recognise this pair later</div>`}
           </div>
-          <label class="btn btn-outline" style="width:100%;margin-top:10px;cursor:pointer;">
+          <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="pickPhoto()">
             ${_photoData ? 'Replace photo' : 'Take or choose photo'}
-            <input type="file" accept="image/*" capture="environment" style="display:none;" onchange="handlePhoto(this)" />
-          </label>
+          </button>
+          <!-- No capture attribute: it would force the camera and hide the
+               photo library, so an existing picture could not be chosen.
+               Kept visually hidden rather than display:none, which some
+               engines treat as unclickable. -->
+          <input id="photo-input" type="file" accept="image/*"
+                 style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;"
+                 onchange="handlePhoto(this)" />
           ${_photoData ? `<button class="btn btn-outline" style="width:100%;margin-top:8px;height:40px;font-size:14px;color:var(--danger);border-color:var(--danger);" onclick="clearPhoto()">Remove photo</button>` : ''}
         </div>
       </div>
@@ -355,6 +361,11 @@ function onFormLocationChange() {
 
 // Photos are the bulk of this app's storage, so they are resized hard on the
 // way in rather than stored at camera resolution.
+function pickPhoto() {
+  const input = document.getElementById('photo-input');
+  if (input) input.click();
+}
+
 function handlePhoto(input) {
   const file = input.files && input.files[0];
   if (!file) return;
@@ -368,7 +379,10 @@ function handlePhoto(input) {
     } catch (err) {
       toast('Could not read that image', 'error');
     }
+    // Cleared so re-picking the same file still fires a change event
+    input.value = '';
   };
+  reader.onerror = () => { toast('Could not read that image', 'error'); input.value = ''; };
   reader.readAsDataURL(file);
 }
 
@@ -669,6 +683,7 @@ window.openShoe          = openShoe;
 window.closeSheet        = closeSheet;
 window.openAdd           = openAdd;
 window.openEdit          = openEdit;
+window.pickPhoto         = pickPhoto;
 window.handlePhoto       = handlePhoto;
 window.clearPhoto        = clearPhoto;
 window.onFormLocationChange = onFormLocationChange;

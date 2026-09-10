@@ -87,14 +87,25 @@ button { font-family: inherit; }
 .view.active { display: block; }
 
 /* ── Page header ── */
+/* Opaque backdrop for the translucent iOS status bar. The page shows through
+   it in standalone mode, and white status text over the light grid is
+   unreadable — so this strip stays put even though the header scrolls away. */
+#status-shade {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--safe-top);
+  background: var(--dark);
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* Scrolls away with the content rather than holding its height the whole time.
+   No safe-area padding here: #view-container already accounts for it, and
+   adding it again cost a Dynamic Island phone roughly 59px of every screen. */
 .page-header {
   background: var(--dark);
   color: #fff;
-  padding: 10px 18px 11px;
-  padding-top: max(10px, calc(var(--safe-top) + 4px));
-  position: sticky;
-  top: 0;
-  z-index: 50;
+  padding: 10px 18px 12px;
 }
 .page-header h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
 .page-header .subtitle { font-size: 12px; color: var(--gold-lt); margin-top: 1px; }

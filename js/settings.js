@@ -69,6 +69,14 @@ function renderSettingsView() {
       <button class="btn btn-primary" onclick="submitSettings()">Save Settings</button>
 
       <div class="field-group">
+        <div class="field-group-label">Customer View</div>
+        <p class="hint">Show a customer what you have without showing them your cost, profit, or where anything is kept. Only pairs you can hand over on the spot appear — nothing already sold, and nothing sitting with a partner.${isLockEnabled() ? ' Your passcode is needed to leave it.' : ''}</p>
+        <div style="padding:0 16px 14px;">
+          <button class="btn btn-outline" style="width:100%;" onclick="enterCustomerView()">Show customer view</button>
+        </div>
+      </div>
+
+      <div class="field-group">
         <div class="field-group-label">Privacy</div>
         ${isLockEnabled() ? `
           <p class="hint">A passcode is set. The app locks when you open it, and again if you have been away for more than a couple of minutes.</p>

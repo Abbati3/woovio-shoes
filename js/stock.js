@@ -53,6 +53,8 @@ function renderStockHeader() {
   const el = document.getElementById('stock-header');
   if (!el) return;
   const s = getSettings() || {};
+  // Only customer view carries a header button — the way out has to be
+  // reachable. Entering is tucked into Settings, off the everyday screen.
   el.innerHTML = _customerView
     ? `<div class="hdr-row">
          <div>
@@ -61,16 +63,17 @@ function renderStockHeader() {
          </div>
          <button class="hdr-action" onclick="exitCustomerView()">Done</button>
        </div>`
-    : `<div class="hdr-row">
-         <div>
-           <h1>Stock</h1>
-           <div class="subtitle" id="stock-tally"></div>
-         </div>
-         <button class="hdr-action" onclick="enterCustomerView()">Show customer</button>
-       </div>`;
+    : `<h1>Stock</h1>
+       <div class="subtitle" id="stock-tally"></div>`;
 }
 
 function matchesFilter(sh) {
+  // Customer view shows only what you can hand over on the spot — in stock and
+  // at one of your own places, not sitting in a partner's shop.
+  if (_customerView) {
+    if (sh.status !== 'in_stock') return false;
+    if (isPartnerLocation(getSettings(), sh.location)) return false;
+  }
   if (_filter.status !== 'all'  && sh.status !== _filter.status)     return false;
   if (_filter.location !== 'all' && sh.location !== _filter.location) return false;
   if (_filter.size !== 'all'    && String(sh.size) !== _filter.size)  return false;

@@ -44,7 +44,7 @@ function renderSettingsView() {
   document.getElementById('view-settings').innerHTML = `
     <div class="page-header">
       <h1>Settings</h1>
-      <div class="subtitle">Places &amp; data</div>
+      <div class="subtitle" id="settings-version">Places &amp; data</div>
     </div>
 
     <div class="settings-list">
@@ -127,6 +127,7 @@ function renderSettingsView() {
 
   renderLocationList();
   showStorageInfo();
+  showVersion('settings-version');
 }
 
 // Locations are edited in place; the array is only read back on save

@@ -63,6 +63,34 @@ window.getOfflineMode    = getOfflineMode;
 window.setOfflineMode    = setOfflineMode;
 window.toggleOfflineMode = toggleOfflineMode;
 
+// ── Version ────────────────────────────────────────────────────────────────
+
+// Read from the active cache name rather than a constant, so the number shown
+// is the build actually running — a hardcoded one could drift from the cache
+// it claims to describe and say an update landed when it had not.
+async function appVersion() {
+  try {
+    if (!('caches' in window)) return null;
+    const keys = await caches.keys();
+    const key  = keys.find(k => k.startsWith('shoes-'));
+    return key ? key.slice('shoes-'.length) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function showVersion(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const v = await appVersion();
+  const base = el.dataset.base || el.textContent;
+  el.dataset.base = base;
+  el.textContent = v ? `${base} · ${v}` : `${base} · not installed`;
+}
+
+window.appVersion  = appVersion;
+window.showVersion = showVersion;
+
 // ── Errors ─────────────────────────────────────────────────────────────────
 
 window.addEventListener('error', e => console.error('Global error:', e.message, e.filename, e.lineno));

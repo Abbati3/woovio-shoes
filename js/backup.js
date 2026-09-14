@@ -25,7 +25,8 @@ async function backupData() {
 
     const file = new File([blob], name, { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'Shoe stock backup' });
+      // Files only: iOS saves a title or text passed alongside as a separate .txt file
+      await navigator.share({ files: [file] });
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

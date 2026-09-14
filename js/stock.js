@@ -260,9 +260,10 @@ function renderGrid() {
 // ── Sending photos ─────────────────────────────────────────────────────────
 //
 // Several photos go to the share sheet at once, so WhatsApp receives them as
-// one batch. Each sent copy is stamped with the pair and its reference: WhatsApp
-// can reorder images and drops a caption sent with them, so without it "the
-// fourth one" could mean any pair. The stored photo is never altered.
+// one batch. Each sent copy is labelled with the pair and its size, since
+// WhatsApp drops a caption sent alongside images. The label carries nothing
+// else — reference numbers and price codes stay in the app. The stored photo
+// is never altered.
 
 const SHARE_LIMIT = 30;   // WhatsApp's cap on media in a single send
 let _selecting = false;
@@ -381,7 +382,7 @@ function showReadySheet(n) {
     <div class="sheet-panel" id="sheet-panel">
       <div class="sheet-handle"></div>
       <div class="d-title">${n} photo${n === 1 ? '' : 's'} ready</div>
-      <div class="d-sub" style="margin-bottom:16px;">Each one is labelled with the pair and its reference.</div>
+      <div class="d-sub" style="margin-bottom:16px;">Each one is labelled with the pair and its size.</div>
       <div class="sheet-actions">
         <button class="btn btn-gold" style="width:100%;" onclick="sendPrepared()">Send</button>
         <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Cancel</button>
@@ -432,18 +433,11 @@ function stampPhoto(sh) {
       const face = '-apple-system, "Helvetica Neue", Arial, sans-serif';
       g.textBaseline = 'middle';
 
-      const ref = refCode(sh);
-      g.font = `700 ${fs}px ${face}`;
-      g.fillStyle = '#C9A84C';
-      g.textAlign = 'right';
-      g.fillText(ref, w - pad, midY);
-      const refWidth = g.measureText(ref).width;
-
       const label = [shoeTitle(sh), sh.size ? 'Size ' + sh.size : ''].filter(Boolean).join(' · ');
       g.font = `600 ${fs}px ${face}`;
       g.fillStyle = '#FFFFFF';
       g.textAlign = 'left';
-      g.fillText(fitText(g, label, w - pad * 3 - refWidth), pad, midY);
+      g.fillText(fitText(g, label, w - pad * 2), pad, midY);
 
       c.toBlob(b => b
         ? resolve(new File([b], photoFileName(sh), { type: 'image/jpeg' }))

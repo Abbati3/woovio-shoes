@@ -91,10 +91,6 @@ function isAging(shoe) {
 
 // ── Reference and price codes ──────────────────────────────────────────────
 
-// The short reference stamped on sent photos, so "#14" in a client's reply
-// names exactly one pair however WhatsApp orders the images.
-function refCode(shoe) { return '#' + shoe.id; }
-
 // A trader's price code: ten different letters standing for 1 2 3 4 5 6 7 8 9 0,
 // written in thousands. A customer sees letters; you read the price.
 const DEFAULT_PRICE_KEY = 'MAKEPROFIT';
@@ -140,7 +136,6 @@ window.expectedOf       = expectedOf;
 window.shoeTitle        = shoeTitle;
 window.isAging          = isAging;
 window.AGING_DAYS       = AGING_DAYS;
-window.refCode          = refCode;
 window.isValidPriceKey  = isValidPriceKey;
 window.priceKey         = priceKey;
 window.priceCode        = priceCode;

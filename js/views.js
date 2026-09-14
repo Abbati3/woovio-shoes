@@ -1,14 +1,17 @@
-// ── Places · Owed · Totals ─────────────────────────────────────────────────
+// ── Places · Totals ────────────────────────────────────────────────────────
 
-// ── Places: what should physically be where ────────────────────────────────
+// ── Places: what is where, and what partners owe ───────────────────────────
+
+let _placeNames = [];   // addressed by index, so a name like "Musa's shop" needs no escaping
 
 function renderPlaces() {
   const el = document.getElementById('places-body');
   if (!el) return;
   const s = getSettings() || {};
   const inStock = _allShoes.filter(x => x.status === 'in_stock');
+  const owedAll = _allShoes.filter(isOwed);
 
-  if (!inStock.length) {
+  if (!inStock.length && !owedAll.length) {
     el.innerHTML = `
       <div class="empty-state">
         <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -18,39 +21,50 @@ function renderPlaces() {
     return;
   }
 
-  // Include configured places with nothing in them: "Car boot: 0" is itself
-  // useful information when you are checking what you should be carrying.
-  const names = [...new Set([
+  // Configured places even when empty — "Car boot: 0" is itself useful when
+  // checking what you should be carrying — plus any place still holding stock
+  // or unpaid sales after being removed from Settings, so none drops from view.
+  _placeNames = [...new Set([
     ...(s.locations || []).map(l => l.name),
-    ...inStock.map(x => x.location).filter(Boolean),
-  ])];
+    ...inStock.map(x => x.location),
+    ...owedAll.map(x => x.location),
+  ].filter(Boolean))];
 
-  el.innerHTML = names.map(name => {
+  el.innerHTML = _placeNames.map((name, i) => {
     const here    = inStock.filter(x => x.location === name);
     const partner = isPartnerLocation(s, name);
     const value   = here.reduce((sum, x) => sum + expectedOf(x), 0);
     const cost    = here.reduce((sum, x) => sum + (Number(x.costPrice) || 0), 0);
 
-    // Money a partner actually owes: pairs they have already sold and not yet
-    // paid for. Stock still sitting with them is not a debt, so it is phrased
-    // as a possibility ("if sold") and kept separate from the owed figure.
-    const owedHere = partner ? _allShoes.filter(x => isOwed(x) && x.soldBy === name) : [];
+    // Owed money is pairs a partner has already sold and not paid for. Stock
+    // still sitting with them is not a debt, so that is phrased as "if sold".
+    // Matched on location, which a rename in Settings carries across.
+    const owedHere = owedAll.filter(x => x.location === name);
     const owedSum  = owedHere.reduce((sum, x) => sum + proceedsOf(x), 0);
 
     return `
-      <button class="place-card" onclick="showPlace('${esc(name).replace(/'/g, "\\'")}')">
-        <div class="place-top">
-          <span class="place-name">${esc(name)}${partner ? '<span class="place-tag">partner</span>' : ''}</span>
-          <span class="place-count">${here.length}</span>
-        </div>
-        <div class="place-meta">
-          <span>${partner ? `${fmtNaira(value)} if sold` : `Worth ${fmtNaira(value)}`}</span>
-          <span>Cost ${fmtNaira(cost)}</span>
-        </div>
-        ${owedSum > 0 ? `<div class="place-owed">Owes you ${fmtNaira(owedSum)} for ${owedHere.length} sold pair${owedHere.length === 1 ? '' : 's'}</div>` : ''}
-      </button>`;
+      <div class="place-card">
+        <button class="place-main" onclick="showPlaceAt(${i})">
+          <div class="place-top">
+            <span class="place-name">${esc(name)}${partner ? '<span class="place-tag">partner</span>' : ''}</span>
+            <span class="place-count">${here.length}</span>
+          </div>
+          <div class="place-meta">
+            <span>${partner ? `${fmtNaira(value)} if sold` : `Worth ${fmtNaira(value)}`}</span>
+            <span>Cost ${fmtNaira(cost)}</span>
+          </div>
+        </button>
+        ${owedSum > 0 ? `
+        <button class="place-owed" onclick="openOwedAt(${i})">
+          <span>Owes you ${fmtNaira(owedSum)} for ${owedHere.length} sold pair${owedHere.length === 1 ? '' : 's'}</span>
+          <span class="place-owed-go">Settle ›</span>
+        </button>` : ''}
+      </div>`;
   }).join('');
 }
+
+function showPlaceAt(i) { showPlace(_placeNames[i]); }
+function openOwedAt(i)  { openOwed(_placeNames[i]); }
 
 // Tapping a place jumps to the grid filtered to it — the check-my-car flow
 function showPlace(name) {
@@ -58,47 +72,34 @@ function showPlace(name) {
   _filter.location = name;
   _filter.size     = 'all';
   _filter.q        = '';
+  _filter.aging    = false;
   const searchEl = document.getElementById('stock-search');
   if (searchEl) searchEl.value = '';
   navigate('stock');
-  renderFilters();
-  renderGrid();
 }
 
-// ── Owed: partner sales where the money has not arrived ────────────────────
+// ── What a partner owes ────────────────────────────────────────────────────
 
-function renderOwed() {
-  const el = document.getElementById('owed-body');
-  if (!el) return;
+let _owedPlace = null;
 
-  const owed  = _allShoes.filter(isOwed);
-  const total = owed.reduce((sum, x) => sum + proceedsOf(x), 0);
+// Settled one partner at a time, because that is how the money arrives
+function openOwed(name) {
+  const list  = _allShoes.filter(x => isOwed(x) && x.location === name);
+  if (!list.length) return;
+  const total = list.reduce((sum, x) => sum + proceedsOf(x), 0);
+  _owedPlace = name;
 
-  const head = document.getElementById('owed-total');
-  if (head) head.textContent = fmtNaira(total);
-
-  if (!owed.length) {
-    el.innerHTML = `
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        <h3>All settled</h3>
-        <p>No partner sales are waiting on payment.</p>
-      </div>`;
-    return;
-  }
-
-  // Grouped by partner, because you settle up with one person at a time
-  const byPartner = {};
-  for (const sh of owed) (byPartner[sh.soldBy || sh.location] ||= []).push(sh);
-
-  el.innerHTML = Object.entries(byPartner).map(([partner, list]) => {
-    const sub = list.reduce((sum, x) => sum + proceedsOf(x), 0);
-    return `
-      <div class="owed-group">
-        <div class="owed-head">
-          <span>${esc(partner)}</span>
-          <span>${fmtNaira(sub)}</span>
-        </div>
+  const existing = document.getElementById('sheet');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'sheet';
+  el.innerHTML = `
+    <div class="sheet-overlay" onclick="closeSheet()"></div>
+    <div class="sheet-panel" id="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="d-title">${esc(name)} owes you ${fmtNaira(total)}</div>
+      <div class="d-sub" style="margin-bottom:12px;">${list.length} sold pair${list.length === 1 ? '' : 's'} not yet paid for</div>
+      <div class="owed-group" style="margin-bottom:14px;">
         ${list.map(sh => `
           <button class="owed-row" onclick="openShoe(${sh.id})">
             ${sh.photo ? `<img src="${sh.photo}" alt="" />` : `<div class="owed-nophoto"></div>`}
@@ -108,8 +109,36 @@ function renderOwed() {
             </div>
             <div class="owed-amt">${fmtNaira(proceedsOf(sh))}</div>
           </button>`).join('')}
-      </div>`;
-  }).join('');
+      </div>
+      <div class="sheet-actions">
+        <button class="btn btn-gold" style="width:100%;" onclick="settleOwed()">Mark all ${fmtNaira(total)} received</button>
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  openSheet(el);
+}
+
+async function settleOwed() {
+  const name = _owedPlace;
+  if (!name) return;
+  const db   = await getDB();
+  const list = (await db.getAll('shoes')).filter(x => isOwed(x) && x.location === name);
+  if (!list.length) { closeSheet(); return; }
+  const total = list.reduce((sum, x) => sum + proceedsOf(x), 0);
+  if (!confirm(`Mark ${fmtNaira(total)} from ${name} as received, for ${list.length} pair${list.length === 1 ? '' : 's'}?`)) return;
+
+  const when = today();
+  for (const sh of list) {
+    sh.remitted     = true;
+    sh.remittedDate = when;
+    await db.put('shoes', sh);
+  }
+  _owedPlace = null;
+  closeSheet();
+  await loadShoes();
+  renderPlaces();
+  toast(`${fmtNaira(total)} from ${name} marked received ✓`, 'success');
 }
 
 // ── Totals ─────────────────────────────────────────────────────────────────
@@ -175,6 +204,9 @@ function renderTotals() {
     <div class="stat-grid">
       ${stat(owed.length, 'pairs sold, unpaid', 'stat-warn')}
       ${stat(fmtNaira(sum(owed, proceedsOf)), 'owed to you', 'stat-warn')}
+    </div>
+    <div style="padding:10px 16px 0;">
+      <button class="btn btn-outline" style="width:100%;" onclick="navigate('places')">See who owes</button>
     </div>` : ''}
 
     ${aging.length ? `
@@ -183,75 +215,32 @@ function renderTotals() {
       ${stat(aging.length, `pairs over ${AGING_DAYS} days`, 'stat-warn')}
       ${stat(fmtNaira(sum(aging, x => Number(x.costPrice) || 0)), 'tied up in them', 'stat-warn')}
     </div>
-    <div style="padding:0 16px 16px;">
+    <div style="padding:10px 16px 16px;">
       <button class="btn btn-outline" style="width:100%;" onclick="showAging()">See them</button>
     </div>` : ''}
 
-    ${topBrands()}
     <div style="height:8px;"></div>
   `;
 }
 
-// What actually sells, by profit — worth knowing before the next buying trip
-function topBrands() {
-  const sold = _allShoes.filter(x => x.status === 'sold' && x.brand);
-  if (sold.length < 3) return '';
-
-  const by = {};
-  for (const sh of sold) {
-    const b = by[sh.brand] ||= { n: 0, profit: 0 };
-    b.n += 1;
-    b.profit += profitOf(sh);
-  }
-  const rows = Object.entries(by)
-    .sort((a, b) => b[1].profit - a[1].profit)
-    .slice(0, 5);
-
-  return `
-    <div class="stat-section">Best sellers by profit</div>
-    <div class="brand-list">
-      ${rows.map(([brand, v]) => `
-        <div class="brand-row">
-          <span class="brand-name">${esc(brand)}</span>
-          <span class="brand-n">${v.n} sold</span>
-          <span class="brand-profit">${fmtNaira(v.profit)}</span>
-        </div>`).join('')}
-    </div>`;
-}
-
+// A filter on the normal grid rather than a separate list, so aging pairs keep
+// their references and can be selected, moved and sent like any others
 function showAging() {
   _filter.status   = 'in_stock';
   _filter.location = 'all';
   _filter.size     = 'all';
   _filter.q        = '';
+  _filter.aging    = true;
   const searchEl = document.getElementById('stock-search');
   if (searchEl) searchEl.value = '';
   navigate('stock');
-  renderFilters();
-  // Reuse the grid but narrow it to the aging pairs only
-  const grid = document.getElementById('stock-grid');
-  const tally = document.getElementById('stock-tally');
-  const aging = _allShoes.filter(isAging);
-  tally.textContent = `${aging.length} pair${aging.length===1?'':'s'} over ${AGING_DAYS} days`;
-  grid.innerHTML = aging.map(sh => `
-    <button class="tile" onclick="openShoe(${sh.id})">
-      <div class="tile-photo">
-        ${sh.photo ? `<img src="${sh.photo}" alt="" loading="lazy" />` : `<div class="tile-nophoto">No photo</div>`}
-        <span class="tile-badge badge-aging">${daysSince(sh.acquiredDate)}d</span>
-      </div>
-      <div class="tile-info">
-        <div class="tile-name">${esc(shoeTitle(sh))}</div>
-        <div class="tile-meta">
-          <span class="tile-size">${sh.size ? 'Sz ' + esc(sh.size) : '—'}</span>
-          <span class="tile-price">${fmtShort(expectedOf(sh))}</span>
-        </div>
-        <div class="tile-loc">${esc(sh.location || '')}</div>
-      </div>
-    </button>`).join('');
 }
 
 window.renderPlaces = renderPlaces;
 window.showPlace    = showPlace;
-window.renderOwed   = renderOwed;
+window.showPlaceAt  = showPlaceAt;
+window.openOwedAt   = openOwedAt;
+window.openOwed     = openOwed;
+window.settleOwed   = settleOwed;
 window.renderTotals = renderTotals;
 window.showAging    = showAging;

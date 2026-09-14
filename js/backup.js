@@ -1,10 +1,10 @@
 // ── Backup & Restore ───────────────────────────────────────────────────────
 //
-// Photos dominate this app's size, so backups come in two forms: a small
-// data-only export you can take often, and a full one with photos for when
-// you actually want to be able to restore the pictures too.
+// One file holding every pair with its photo. A backup without photos would
+// restore pairs you could no longer recognise, in an app built on recognising
+// them by sight — so there is no smaller, photo-less option.
 
-async function backupData(withPhotos) {
+async function backupData() {
   try {
     const db       = await getDB();
     const shoes    = await db.getAll('shoes');
@@ -13,16 +13,14 @@ async function backupData(withPhotos) {
     const payload = {
       app:        'woovio-shoes',
       version:    1,
-      withPhotos: !!withPhotos,
+      withPhotos: true,
       exportedAt: new Date().toISOString(),
       settings:   settings || {},
-      shoes:      withPhotos ? shoes : shoes.map(s => ({ ...s, photo: '' })),
+      shoes,
     };
 
-    const json = JSON.stringify(payload);
-    const blob = new Blob([json], { type: 'application/json' });
-    const date = new Date().toISOString().slice(0, 10);
-    const name = `shoes-backup-${date}${withPhotos ? '-full' : ''}.json`;
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const name = `shoes-backup-${today()}.json`;
     const mb   = (blob.size / 1048576).toFixed(1);
 
     const file = new File([blob], name, { type: 'application/json' });
@@ -39,7 +37,7 @@ async function backupData(withPhotos) {
     localStorage.setItem('sinceBackup', '0');
     localStorage.setItem('lastBackupAt', new Date().toISOString());
     toast(`Backup ready — ${shoes.length} pair(s), ${mb} MB`, 'success');
-    if (typeof showStorageInfo === 'function') showStorageInfo();
+    if (typeof showLastBackup === 'function') showLastBackup();
   } catch (e) {
     if (e.name !== 'AbortError') toast('Backup failed: ' + e.message, 'error');
   }
@@ -62,6 +60,7 @@ async function handleRestoreFile(file) {
     }
 
     const list = payload.shoes || [];
+    // Older app versions could export without photos; say so before replacing
     const note = payload.withPhotos === false
       ? '\n\nThis backup has no photos in it — restoring will leave every pair without its picture.'
       : '';
@@ -76,7 +75,7 @@ async function handleRestoreFile(file) {
 
     await loadSettings();
     await renderStock();
-    renderPlaces(); renderOwed(); renderTotals();
+    renderPlaces(); renderTotals();
     navigate('stock');
     toast(`Restored ${list.length} pair(s) ✓`, 'success');
   } catch (e) {

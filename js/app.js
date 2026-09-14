@@ -1,6 +1,6 @@
 // ── Router ─────────────────────────────────────────────────────────────────
 
-const VIEWS = ['stock', 'places', 'owed', 'totals', 'settings', 'form'];
+const VIEWS = ['stock', 'places', 'totals', 'settings', 'form'];
 
 function showView(id) {
   VIEWS.forEach(v => {
@@ -13,12 +13,15 @@ function showView(id) {
   // Each render is isolated: a failure in one view must not take the app down
   try { if (id === 'stock')    renderStock();        } catch (e) { console.error('stock:', e); }
   try { if (id === 'places')   renderPlaces();       } catch (e) { console.error('places:', e); }
-  try { if (id === 'owed')     renderOwed();         } catch (e) { console.error('owed:', e); }
   try { if (id === 'totals')   renderTotals();       } catch (e) { console.error('totals:', e); }
   try { if (id === 'settings') renderSettingsView(); } catch (e) { console.error('settings:', e); }
 }
 
-function navigate(id) { showView(id); }
+function navigate(id) {
+  // An update that arrived mid-edit applies as soon as the form is left
+  if (_reloadWhenFree && id !== 'form') { location.reload(); return; }
+  showView(id);
+}
 window.navigate = navigate;
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -34,34 +37,54 @@ function toast(msg, type = 'success') {
 }
 window.toast = toast;
 
-// ── Offline mode ───────────────────────────────────────────────────────────
+// ── Updates ────────────────────────────────────────────────────────────────
+//
+// The browser looks for a new version by itself each time the app opens. When
+// one installs it takes over at once and the page reloads onto it, so opening
+// the app is enough to be current. A reload never lands mid-edit: while the add
+// or edit form is open it waits until the form is left.
 
-function getOfflineMode() {
-  return localStorage.getItem('offlineMode') !== 'false'; // default on
-}
+let _reloadWhenFree = false;
 
-function setOfflineMode(val) {
-  localStorage.setItem('offlineMode', val ? 'true' : 'false');
-  sendOfflineModeToSW(val);
-}
-
-function sendOfflineModeToSW(val) {
-  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: 'SET_OFFLINE_MODE', value: val });
+function applyUpdateWhenFree() {
+  const editing = document.getElementById('view-form')?.classList.contains('active');
+  if (editing) {
+    _reloadWhenFree = true;
+    toast('Update ready — it applies when you leave this form', 'success');
+    return;
   }
+  location.reload();
 }
 
-function toggleOfflineMode() {
-  const btn = document.getElementById('offline-toggle');
-  const on  = btn.classList.toggle('on');
-  btn.setAttribute('aria-pressed', on);
-  setOfflineMode(on);
-  toast(on ? 'Offline mode on — network blocked' : 'Update mode on — network allowed', 'success');
+async function checkForUpdates() {
+  if (!('serviceWorker' in navigator)) { toast('Updates are not supported here', 'error'); return; }
+  if (!navigator.onLine) { toast('No connection — try again once you are online', 'error'); return; }
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) { toast('Not installed yet — reopen the app while online', 'error'); return; }
+
+  // update() can resolve before the new worker is reported, so listen first
+  const found = new Promise(resolve => {
+    if (reg.installing || reg.waiting) return resolve(true);
+    const timer = setTimeout(() => resolve(false), 2500);
+    reg.addEventListener('updatefound', () => { clearTimeout(timer); resolve(true); }, { once: true });
+  });
+
+  toast('Checking for updates…', 'success');
+  try {
+    await reg.update();
+  } catch (e) {
+    toast('Could not reach the update server', 'error');
+    return;
+  }
+  if (await found) {
+    toast('Update found — installing…', 'success');   // the controller change reloads onto it
+    return;
+  }
+  const v = await appVersion();
+  toast(`You're on the latest version${v ? ' (' + v + ')' : ''}`, 'success');
 }
 
-window.getOfflineMode    = getOfflineMode;
-window.setOfflineMode    = setOfflineMode;
-window.toggleOfflineMode = toggleOfflineMode;
+window.checkForUpdates = checkForUpdates;
 
 // ── Version ────────────────────────────────────────────────────────────────
 
@@ -99,16 +122,30 @@ window.addEventListener('unhandledrejection', e => console.error('Unhandled reje
 // ── Service worker ─────────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
+  // The first controller a page ever gets, on a fresh install, replaces nothing,
+  // so reloading onto it would only make the screen flash. Every change after
+  // that is a newer version taking over — including one that arrives in the same
+  // visit as the first install, which a check made only at load would miss.
+  let hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }
+    if (reloading) return;
+    reloading = true;
+    applyUpdateWhenFree();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js')
-      .then(() => navigator.serviceWorker.ready.then(() => sendOfflineModeToSW(getOfflineMode())))
-      .catch(err => console.warn('SW:', err));
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW:', err));
   });
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Left behind by the offline switch that no longer exists
+  localStorage.removeItem('offlineMode');
+
   // Cover the screen before anything renders, so stock never flashes up behind
   // the lock while the database is still being read
   const locked = isLockEnabled();

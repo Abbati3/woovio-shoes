@@ -102,30 +102,19 @@ function renderSettingsView() {
 
       <div class="field-group">
         <div class="field-group-label">Backup</div>
-        <p class="hint">Photos make a full backup large. Take the data-only export often; take the full one now and then, when you have a moment and somewhere to put it.</p>
+        <p class="hint">One file with every pair, its photo, your places and settings. Keep it in Files or iCloud Drive — if the app is ever deleted, this is how everything comes back.</p>
+        <div id="last-backup" class="hint" style="padding-top:0;"></div>
         <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px;">
-          <button class="btn btn-outline" style="width:100%;" onclick="backupData(false)">Export data only (small)</button>
-          <button class="btn btn-outline" style="width:100%;" onclick="backupData(true)">Export everything, with photos</button>
+          <button class="btn btn-outline" style="width:100%;" onclick="backupData()">Export backup</button>
           <button class="btn btn-outline" style="width:100%;color:var(--danger);border-color:var(--danger);" onclick="openRestorePicker()">Restore from backup</button>
         </div>
       </div>
 
       <div class="field-group">
-        <div class="field-group-label">Storage</div>
-        <div id="storage-info" class="hint" style="padding-bottom:14px;">Checking…</div>
-      </div>
-
-      <div class="field-group">
-        <div class="field-group-label">Connectivity</div>
-        <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
-          <div class="field-row toggle-row" style="margin:0;padding:0;border:none;">
-            <div>
-              <div class="toggle-label" style="font-weight:600;">Offline Mode</div>
-              <div class="hint" style="padding:0;margin-top:2px;">On: never touches the network. Turn off only to pick up an update.</div>
-            </div>
-            <button class="toggle ${getOfflineMode() ? 'on' : ''}" id="offline-toggle" onclick="toggleOfflineMode()" aria-pressed="${getOfflineMode()}"></button>
-          </div>
-          <button class="btn btn-outline" style="width:100%;" onclick="location.reload()">Restart App</button>
+        <div class="field-group-label">App Updates</div>
+        <p class="hint">The app updates itself whenever you open it with a connection. The version is shown at the top of this page.</p>
+        <div style="padding:0 16px 14px;">
+          <button class="btn btn-outline" style="width:100%;" onclick="checkForUpdates()">Check for updates</button>
         </div>
       </div>
 
@@ -134,7 +123,7 @@ function renderSettingsView() {
   `;
 
   renderLocationList();
-  showStorageInfo();
+  showLastBackup();
   showVersion('settings-version');
   previewPriceKey(priceKey());
   renderFaceIdSetting();
@@ -239,6 +228,8 @@ async function submitSettings() {
     for (const [prev, next] of renames) {
       for (const sh of all.filter(x => x.location === prev)) {
         sh.location = next;
+        // A partner's unpaid sales carry the partner's name too
+        if (sh.soldBy === prev) sh.soldBy = next;
         await db.put('shoes', sh);
       }
     }
@@ -249,30 +240,21 @@ async function submitSettings() {
   toast('Settings saved ✓', 'success');
 }
 
-async function showStorageInfo() {
-  const el = document.getElementById('storage-info');
+// Only the part of the old storage readout that mattered: how stale your backup is
+function showLastBackup() {
+  const el = document.getElementById('last-backup');
   if (!el) return;
-  try {
-    const db = await getDB();
-    const all = await db.getAll('shoes');
-    const withPhoto = all.filter(s => s.photo).length;
-
-    let quotaLine = '';
-    if (navigator.storage && navigator.storage.estimate) {
-      const { usage, quota } = await navigator.storage.estimate();
-      const mb = n => (n / 1048576).toFixed(1) + ' MB';
-      quotaLine = `${mb(usage)} used of about ${mb(quota)} available.`;
-    }
-
-    const last = localStorage.getItem('lastBackupAt');
-    const backupLine = last
-      ? `Last backup ${daysSince(last.slice(0,10))} day(s) ago.`
-      : 'No backup taken yet.';
-
-    el.textContent = `${all.length} pair(s), ${withPhoto} with photos. ${quotaLine} ${backupLine}`;
-  } catch (e) {
-    el.textContent = 'Could not read storage details.';
+  const last = localStorage.getItem('lastBackupAt');
+  if (!last) {
+    el.textContent = 'No backup taken yet.';
+    el.classList.add('bad');
+    return;
   }
+  const t = new Date(last);
+  const p = n => String(n).padStart(2, '0');
+  const days = daysSince(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`);
+  el.textContent = days === 0 ? 'Last backup: today.' : `Last backup: ${days} day${days === 1 ? '' : 's'} ago.`;
+  el.classList.toggle('bad', days > 14);
 }
 
 window.renderSettingsView = renderSettingsView;
@@ -281,3 +263,4 @@ window.removeLocation     = removeLocation;
 window.submitSettings     = submitSettings;
 window.previewPriceKey    = previewPriceKey;
 window.savePriceKey       = savePriceKey;
+window.showLastBackup     = showLastBackup;

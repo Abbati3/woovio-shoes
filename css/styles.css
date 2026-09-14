@@ -312,13 +312,20 @@ body:has(#view-stock.active) #fab { display: flex; }
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 16px;
-  text-align: left;
-  cursor: pointer;
+  overflow: hidden;
+}
+.place-main {
+  display: block;
   width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.place-card:active { border-color: var(--gold); }
+.place-main:active { background: var(--bg); }
 .place-top { display: flex; justify-content: space-between; align-items: center; }
 .place-name { font-size: 16px; font-weight: 600; }
 .place-tag {
@@ -333,29 +340,31 @@ body:has(#view-stock.active) #fab { display: flex; }
   font-size: 12px; color: var(--muted); margin-top: 4px;
 }
 .place-owed {
-  margin-top: 8px;
-  padding-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
   border-top: 1px solid var(--border);
+  text-align: left;
   font-size: 12px;
   font-weight: 700;
   color: var(--danger);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+.place-owed:active { background: #FFEBEE; }
+.place-owed-go { flex-shrink: 0; color: var(--dark); }
 
-/* ── Owed ── */
-.owed-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
-
+/* ── What a partner owes (settle sheet) ── */
 .owed-group {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-}
-.owed-head {
-  display: flex; justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  font-size: 13px; font-weight: 700;
 }
 .owed-row {
   display: flex; align-items: center; gap: 10px;
@@ -399,23 +408,6 @@ body:has(#view-stock.active) #fab { display: flex; }
 .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
 .stat-warn .stat-value { color: var(--danger); }
 
-.brand-list {
-  margin: 0 16px;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.brand-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-}
-.brand-row:last-child { border-bottom: none; }
-.brand-name { flex: 1; font-weight: 600; }
-.brand-n { font-size: 12px; color: var(--muted); }
-.brand-profit { font-weight: 700; color: var(--good); }
 
 /* ── Settings / forms ── */
 .settings-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -800,3 +792,6 @@ body.selecting #fab { display: none !important; }
 .lock-faceid svg { width: 22px; height: 22px; }
 .lock-faceid:active { background: rgba(201,168,76,0.16); }
 .faceid-row { border-top: 1px solid var(--border); }
+
+/* ── Backup freshness ── */
+#last-backup.bad { color: var(--danger); font-weight: 600; }

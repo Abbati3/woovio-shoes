@@ -23,7 +23,7 @@ async function enterCustomerView() {
   if (_selecting) cancelSelect();
   _customerView = true;
   document.body.classList.add('customer-view');
-  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '' };
+  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '', aging: false };
   const se = document.getElementById('stock-search');
   if (se) se.value = '';
   navigate('stock');
@@ -72,6 +72,7 @@ function matchesFilter(sh) {
   // Customer view shows everything still unsold, wherever it is kept. Stock at
   // a partner's shop is yours and you can fetch it, so it is available to sell.
   if (_customerView && sh.status !== 'in_stock') return false;
+  if (_filter.aging && !isAging(sh)) return false;
   if (_filter.status !== 'all'  && sh.status !== _filter.status)     return false;
   if (_filter.location !== 'all' && sh.location !== _filter.location) return false;
   if (_filter.size !== 'all'    && String(sh.size) !== _filter.size)  return false;
@@ -109,7 +110,7 @@ function renderFilters() {
     </select>`;
 
   const clearRow = filtersActive()
-    ? `<button class="clear-filters" onclick="clearFilters()">Clear filters ×</button>` : '';
+    ? `<button class="clear-filters" onclick="clearFilters()">${_filter.aging ? `Showing pairs over ${AGING_DAYS} days · Clear ×` : 'Clear filters ×'}</button>` : '';
 
   // A customer only needs to browse by size — where a pair is kept, and
   // whether anything has sold, are none of their business.
@@ -143,11 +144,12 @@ function filtersActive() {
   return _filter.location !== 'all'
       || _filter.size !== 'all'
       || !!_filter.q
+      || !!_filter.aging
       || (!_customerView && _filter.status !== 'in_stock');
 }
 
 function clearFilters() {
-  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '' };
+  _filter = { status: 'in_stock', location: 'all', size: 'all', q: '', aging: false };
   const se = document.getElementById('stock-search');
   if (se) se.value = '';
   const cb = document.getElementById('stock-clear');
@@ -279,33 +281,34 @@ function renderShareBar() {
 
   if (_selecting) {
     const n = _selected.size;
+    const withPhoto = _allShoes.filter(x => _selected.has(x.id) && isShareable(x)).length;
     bar.innerHTML = `
       <div class="share-row">
         <button class="share-btn" onclick="cancelSelect()">Cancel</button>
-        <button class="share-btn share-go" ${n ? '' : 'disabled'} onclick="shareSelected()">Send ${n} photo${n === 1 ? '' : 's'}</button>
+        <button class="share-btn" ${n ? '' : 'disabled'} onclick="openBulkMove()">Move${n ? ' ' + n : ''}</button>
+        <button class="share-btn share-go" ${withPhoto ? '' : 'disabled'} onclick="shareSelected()">Send${withPhoto ? ' ' + withPhoto : ''}</button>
       </div>
-      <div class="share-hint">Tap the pairs to send</div>`;
+      <div class="share-hint">${n ? `${n} selected — move them, or send their photos` : 'Tap pairs to select them'}</div>`;
     return;
   }
 
-  const n = _allShoes.filter(matchesFilter).filter(isShareable).length;
-  bar.innerHTML = n ? `
+  const shown      = _allShoes.filter(matchesFilter);
+  const selectable = shown.filter(x => x.status === 'in_stock').length;
+  const sendable   = shown.filter(isShareable).length;
+  bar.innerHTML = selectable ? `
     <div class="share-row">
-      <button class="share-btn" onclick="startSelect()">Select photos</button>
-      <button class="share-btn" onclick="shareShown()">Send all ${n}</button>
+      <button class="share-btn" onclick="startSelect()">Select</button>
+      ${sendable ? `<button class="share-btn" onclick="shareShown()">Send all ${sendable} photos</button>` : ''}
     </div>` : '';
 }
 
 function tileTap(id) {
   if (!_selecting) { openShoe(id); return; }
   const sh = _allShoes.find(x => x.id === id);
-  if (!sh || !isShareable(sh)) { toast('Only unsold pairs with a photo can be sent', 'error'); return; }
-  if (_selected.has(id)) {
-    _selected.delete(id);
-  } else {
-    if (_selected.size >= SHARE_LIMIT) { toast(`WhatsApp takes up to ${SHARE_LIMIT} photos at a time`, 'error'); return; }
-    _selected.add(id);
-  }
+  // Selection is for moving and sending, both of which only make sense for stock
+  if (!sh || sh.status !== 'in_stock') { toast('Sold pairs cannot be selected', 'error'); return; }
+  if (_selected.has(id)) _selected.delete(id);
+  else _selected.add(id);
   // Toggled in place rather than redrawing the grid, which would re-decode every photo
   const tile = document.querySelector(`.tile[data-id="${id}"]`);
   if (tile) tile.classList.toggle('tile-selected', _selected.has(id));
@@ -328,7 +331,13 @@ function cancelSelect() {
 }
 
 async function shareSelected() {
-  await sendPhotos(_allShoes.filter(x => _selected.has(x.id)));
+  let list = _allShoes.filter(x => _selected.has(x.id) && isShareable(x));
+  if (!list.length) { toast('None of the selected pairs has a photo', 'error'); return; }
+  if (list.length > SHARE_LIMIT) {
+    if (!confirm(`WhatsApp takes up to ${SHARE_LIMIT} photos at a time. Send the first ${SHARE_LIMIT}?`)) return;
+    list = list.slice(0, SHARE_LIMIT);
+  }
+  await sendPhotos(list);
 }
 
 async function shareShown() {
@@ -544,9 +553,11 @@ async function openShoe(id) {
         ${owed  ? `<button class="btn btn-gold" style="width:100%;" onclick="markRemitted(${sh.id})">Mark money received</button>` : ''}
         <div style="display:flex;gap:10px;margin-top:10px;">
           ${!sold ? `<button class="btn btn-outline" style="flex:1;" onclick="openMove(${sh.id})">Move</button>` : ''}
+          ${sold  ? `<button class="btn btn-outline" style="flex:1;" onclick="undoSale(${sh.id})">Undo sale</button>` : ''}
           <button class="btn btn-outline" style="flex:1;" onclick="openEdit(${sh.id})">Edit</button>
           <button class="btn btn-outline" style="flex:1;color:var(--danger);border-color:var(--danger);" onclick="deleteShoe(${sh.id})">Delete</button>
         </div>
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="openAddLike(${sh.id})">Add more like this</button>
         <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Close</button>
       </div>
     </div>`;
@@ -636,9 +647,34 @@ async function openEdit(id) {
   navigate('form');
 }
 
-function renderForm(sh) {
+// Restocking a model already carried: the form opens pre-filled from this pair —
+// photo, description, prices and place — leaving the sizes, date and notes new.
+async function openAddLike(id) {
+  const db  = await getDB();
+  const src = await db.get('shoes', id);
+  if (!src) return;
+  closeSheet();
+  _editingId = null;
+  _photoData = src.photo || '';
+  renderForm({
+    brand:        src.brand,
+    model:        src.model,
+    colour:       src.colour,
+    costPrice:    src.costPrice,
+    askingPrice:  src.askingPrice,
+    lowestPrice:  src.lowestPrice,
+    location:     src.location,
+    agreedAmount: src.agreedAmount,
+    supplier:     src.supplier,
+  }, { copyOf: src });
+  navigate('form');
+}
+
+function renderForm(sh, opts) {
   const s = getSettings() || {};
-  const isNew = !sh;
+  // A copy ("add more like this") is a new pair that starts from another's details
+  const copyOf = opts && opts.copyOf;
+  const isNew  = !sh || !!copyOf;
   const loc = sh ? sh.location : (s.locations[0] && s.locations[0].name) || '';
 
   document.getElementById('view-form').innerHTML = `
@@ -647,8 +683,8 @@ function renderForm(sh) {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <div>
-        <h1>${isNew ? 'Add pair' : 'Edit pair'}</h1>
-        <div class="subtitle">${isNew ? 'Photograph and describe it' : esc(shoeTitle(sh))}</div>
+        <h1>${copyOf ? 'Add more like this' : isNew ? 'Add pair' : 'Edit pair'}</h1>
+        <div class="subtitle">${copyOf ? 'Photo and prices filled in — add the sizes' : isNew ? 'Photograph and describe it' : esc(shoeTitle(sh))}</div>
       </div>
     </div>
 
@@ -995,7 +1031,7 @@ async function confirmSell(id, partner) {
   closeSheet();
   toast(partner ? `Sold — ${fmtNaira(price)} owed by ${sh.location}` : 'Sale recorded ✓', 'success');
   await renderStock();
-  renderOwed();
+  renderPlaces();
 }
 
 async function markRemitted(id) {
@@ -1008,8 +1044,40 @@ async function markRemitted(id) {
   closeSheet();
   toast('Marked as received ✓', 'success');
   await loadShoes();
-  renderOwed();
+  renderPlaces();
   renderGrid();
+}
+
+// ── Undo a sale ────────────────────────────────────────────────────────────
+//
+// For a mis-tapped sale or a pair a customer brings back. The pair returns to
+// stock where it was, keeping its photo, cost and history; only the sale itself
+// is cleared, so takings and profit drop back as though it never sold.
+async function undoSale(id) {
+  const db = await getDB();
+  const sh = await db.get('shoes', id);
+  if (!sh || sh.status !== 'sold') return;
+
+  const paidByPartner = sh.remitted === true;
+  const msg =
+    `Put ${shoeTitle(sh)}${sh.size ? ' (size ' + sh.size + ')' : ''} back in stock at ${sh.location}?\n\n` +
+    `The ${fmtNaira(sh.soldPrice)} sale comes off your takings and profit.` +
+    (paidByPartner ? `\n\n${sh.soldBy} has already paid you for it — settle that with them separately.` : '');
+  if (!confirm(msg)) return;
+
+  Object.assign(sh, {
+    status:       'in_stock',
+    soldDate:     null,
+    soldPrice:    null,
+    soldBy:       null,
+    buyer:        '',
+    remitted:     null,
+    remittedDate: null,
+  });
+  await db.put('shoes', sh);
+  closeSheet();
+  toast('Back in stock ✓', 'success');
+  await renderStock();
 }
 
 // ── Move ───────────────────────────────────────────────────────────────────
@@ -1083,6 +1151,94 @@ async function confirmMove(id) {
   renderPlaces();
 }
 
+// ── Move several at once ───────────────────────────────────────────────────
+
+function openBulkMove() {
+  const list = _allShoes.filter(x => _selected.has(x.id) && x.status === 'in_stock');
+  if (!list.length) return;
+  const s = getSettings() || {};
+  const n = list.length;
+
+  const existing = document.getElementById('sheet');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'sheet';
+  el.innerHTML = `
+    <div class="sheet-overlay" onclick="closeSheet()"></div>
+    <div class="sheet-panel" id="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="d-title">Move ${n} pair${n === 1 ? '' : 's'}</div>
+      <div class="d-sub" style="margin-bottom:14px;">Every selected pair goes to the same place</div>
+
+      <div class="field-group" style="margin-bottom:14px;">
+        <div class="field-row">
+          <label>Move to</label>
+          <select id="bulk-loc" onchange="onBulkMoveLocationChange()">
+            ${(s.locations||[]).map(l =>
+              `<option value="${esc(l.name)}">${esc(l.name)}${l.partner?' (partner)':''}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row" id="bulk-agreed-row" style="display:none;">
+          <label>Agreed amount back to me, per pair (₦)</label>
+          <input id="bulk-agreed" type="number" min="0" step="0.01" placeholder="Blank keeps each pair's own amount" />
+        </div>
+      </div>
+
+      <div class="sheet-actions">
+        <button class="btn btn-gold" style="width:100%;" onclick="confirmBulkMove()">Move ${n} pair${n === 1 ? '' : 's'}</button>
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  openSheet(el);
+  onBulkMoveLocationChange();
+}
+
+function onBulkMoveLocationChange() {
+  const s = getSettings() || {};
+  const loc = document.getElementById('bulk-loc').value;
+  document.getElementById('bulk-agreed-row').style.display = isPartnerLocation(s, loc) ? '' : 'none';
+}
+
+async function confirmBulkMove() {
+  const s   = getSettings() || {};
+  const loc = document.getElementById('bulk-loc').value;
+  const partner = isPartnerLocation(s, loc);
+  const raw   = document.getElementById('bulk-agreed').value;
+  const typed = raw === '' ? null : (parseFloat(raw) || 0);
+
+  const db   = await getDB();
+  const list = (await db.getAll('shoes')).filter(x => _selected.has(x.id) && x.status === 'in_stock');
+  if (!list.length) { closeSheet(); return; }
+
+  // Pairs differ in price, so one shared amount is only applied when typed;
+  // left blank, each pair keeps the amount it already has — and needs one.
+  if (partner) {
+    if (typed !== null && typed <= 0) {
+      toast('Enter an amount above zero, or leave it blank', 'error');
+      return;
+    }
+    if (typed === null) {
+      const missing = list.filter(x => !(Number(x.agreedAmount) > 0)).length;
+      if (missing) {
+        toast(`${missing} of these pair${missing === 1 ? ' has' : 's have'} no agreed amount yet — enter one`, 'error');
+        document.getElementById('bulk-agreed').focus();
+        return;
+      }
+    }
+  }
+
+  for (const sh of list) {
+    sh.location     = loc;
+    sh.agreedAmount = partner ? (typed !== null ? typed : Number(sh.agreedAmount)) : null;
+    await db.put('shoes', sh);
+  }
+  closeSheet();
+  cancelSelect();
+  toast(`${list.length} pair${list.length === 1 ? '' : 's'} moved to ${loc}`, 'success');
+  await renderStock();
+}
+
 // ── Backup nudge ───────────────────────────────────────────────────────────
 
 function nudgeBackup(added) {
@@ -1130,3 +1286,8 @@ window.shareShown        = shareShown;
 window.sendPrepared      = sendPrepared;
 window.renderShareBar    = renderShareBar;
 window.stampPhoto        = stampPhoto;
+window.undoSale          = undoSale;
+window.openAddLike       = openAddLike;
+window.openBulkMove      = openBulkMove;
+window.onBulkMoveLocationChange = onBulkMoveLocationChange;
+window.confirmBulkMove   = confirmBulkMove;

@@ -1,4 +1,4 @@
-const CACHE = 'shoes-v12';
+const CACHE = 'shoes-v13';
 
 const PRECACHE = [
   'index.html',
@@ -17,13 +17,10 @@ const PRECACHE = [
   'assets/icon-512.png'
 ];
 
-let offlineMode = true;
-
-self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'SET_OFFLINE_MODE') {
-    offlineMode = e.data.value;
-  }
-});
+// Files come from the cache first, so the app opens instantly with or without a
+// connection. Updates never pass through this handler: the browser fetches sw.js
+// itself to look for a new version, and a new worker's install bypasses it — so
+// no switch to block the network is needed, and none is offered.
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -45,18 +42,12 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      if (offlineMode) {
-        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+    caches.match(e.request).then(cached => cached || fetch(e.request).then(response => {
+      if (response.ok && e.request.method === 'GET') {
+        const clone = response.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
       }
-      return fetch(e.request).then(response => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return response;
-      }).catch(() => new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }));
-    })
+      return response;
+    }).catch(() => new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } })))
   );
 });

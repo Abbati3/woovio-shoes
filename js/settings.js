@@ -91,8 +91,9 @@ function renderSettingsView() {
             <button class="btn btn-outline" style="width:100%;" onclick="startSetPasscode()">Change passcode</button>
             <button class="btn btn-outline" style="width:100%;color:var(--danger);border-color:var(--danger);" onclick="removePasscode()">Remove passcode</button>
           </div>
+          <div id="faceid-setting"></div>
         ` : `
-          <p class="hint">Lock the app with four digits so your stock and takings are not open to anyone holding your phone. There is no way to recover a forgotten passcode — the only way back in is to erase the data and restore a backup.</p>
+          <p class="hint">Lock the app with four digits so your stock and takings are not open to anyone holding your phone. There is no way to recover a forgotten passcode — the only way back in is to erase the data and restore a backup. Once a passcode is set, iPhones with Face ID can unlock with that instead.</p>
           <div style="padding:0 16px 14px;">
             <button class="btn btn-outline" style="width:100%;" onclick="startSetPasscode()">Set a passcode</button>
           </div>
@@ -136,6 +137,7 @@ function renderSettingsView() {
   showStorageInfo();
   showVersion('settings-version');
   previewPriceKey(priceKey());
+  renderFaceIdSetting();
 }
 
 // ── Price code key ─────────────────────────────────────────────────────────

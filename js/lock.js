@@ -52,6 +52,14 @@ function buildLockUI(title, sub, showForgot) {
       <div class="lock-title" id="lock-title">${title}</div>
       <div class="lock-sub" id="lock-sub">${sub}</div>
       <div class="lock-dots" id="lock-dots">${[0,1,2,3].map(()=>'<span></span>').join('')}</div>
+      ${_mode === 'verify' && isFaceIdEnabled() ? `
+      <button class="lock-faceid" onclick="unlockWithFaceId()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/>
+          <path d="M9 9.5v1M15 9.5v1M12 9v4h-1M9.5 15.5a3.5 3.5 0 0 0 5 0"/>
+        </svg>
+        Unlock with Face ID
+      </button>` : ''}
       <div class="lock-pad">
         ${[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="lockPress('${n}')">${n}</button>`).join('')}
         <button class="lock-blank" ${showForgot ? 'onclick="lockForgot()"' : 'disabled'}>${showForgot ? '?' : ''}</button>
@@ -132,10 +140,7 @@ async function submitCode() {
   // verify
   const hash = await sha256((s.passcodeSalt || '') + _entered);
   if (hash === s.passcodeHash) {
-    _tries = 0;
-    closeLock();
-    touchActivity();
-    if (_onUnlock) { const fn = _onUnlock; _onUnlock = null; fn(); }
+    unlockSucceeded();
     return;
   }
 
@@ -157,6 +162,14 @@ async function submitCode() {
     return;
   }
   shake(`Wrong passcode — ${MAX_TRIES - _tries} tries left`);
+}
+
+// Shared by the passcode and Face ID, so both unlock in exactly the same way
+function unlockSucceeded() {
+  _tries = 0;
+  closeLock();
+  touchActivity();
+  if (_onUnlock) { const fn = _onUnlock; _onUnlock = null; fn(); }
 }
 
 function lockCancel() {
@@ -189,6 +202,7 @@ async function lockForgot() {
     await db.delete('settings', 'main');
   } catch (e) { console.error('wipe:', e); }
   localStorage.removeItem('lockEnabled');
+  disableFaceId();
   location.reload();
 }
 
@@ -198,7 +212,7 @@ function lockNow(onUnlock) {
   _mode     = 'verify';
   _entered  = '';
   _onUnlock = onUnlock || null;
-  buildLockUI('Enter passcode', 'Enter your passcode', true);
+  buildLockUI('Enter passcode', isFaceIdEnabled() ? 'Use Face ID or enter your passcode' : 'Enter your passcode', true);
 }
 
 function startSetPasscode() {
@@ -209,11 +223,163 @@ function startSetPasscode() {
 }
 
 async function removePasscode() {
-  if (!confirm('Remove the passcode? Anyone who opens the app will see your stock and takings.')) return;
+  if (!confirm('Remove the passcode? Anyone who opens the app will see your stock and takings.' +
+               (isFaceIdEnabled() ? ' Face ID unlock will be turned off too.' : ''))) return;
   await saveSettings({ passcodeSalt: '', passcodeHash: '' });
   localStorage.removeItem('lockEnabled');
+  // Face ID only ever stands in for the passcode, so it cannot outlive it
+  disableFaceId();
   renderSettingsView();
   toast('Passcode removed', 'success');
+}
+
+// ── Face ID ────────────────────────────────────────────────────────────────
+//
+// A passkey (WebAuthn) held by the phone's own authenticator, so iOS asks for
+// Face ID and nothing leaves the device — it works offline. Safari only allows
+// the prompt straight after a tap, so it is a button on the lock screen rather
+// than something raised by itself when the app opens.
+//
+// There is no server to check the passkey's signature, and none is needed: the
+// lock only keeps out someone holding the phone, and anyone able to tamper with
+// the app's code could get past the passcode just as easily. The app checks that
+// the passkey which answered is the one set up here, and that iOS reports the
+// owner was verified rather than the screen merely being tapped.
+
+function isFaceIdEnabled() {
+  return isLockEnabled()
+      && localStorage.getItem('faceIdEnabled') === '1'
+      && !!localStorage.getItem('faceIdCredId');
+}
+
+async function faceIdAvailable() {
+  try {
+    return !!(window.PublicKeyCredential &&
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+  } catch (e) {
+    return false;
+  }
+}
+
+function randomBytes(n) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return a;
+}
+
+function toB64url(buf) {
+  let s = '';
+  new Uint8Array(buf).forEach(b => { s += String.fromCharCode(b); });
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromB64url(str) {
+  const s = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+// The same user handle every time, so setting Face ID up again replaces the
+// passkey on the phone rather than leaving another beside it in Passwords.
+function faceIdUserHandle() {
+  let h = localStorage.getItem('faceIdUserId');
+  if (!h) {
+    h = toB64url(randomBytes(16));
+    localStorage.setItem('faceIdUserId', h);
+  }
+  return fromB64url(h);
+}
+
+// True only when the stored passkey answered and iOS verified the owner
+async function verifyFaceId(credId) {
+  const assertion = await navigator.credentials.get({ publicKey: {
+    challenge: randomBytes(32),
+    allowCredentials: [{ type: 'public-key', id: fromB64url(credId), transports: ['internal'] }],
+    userVerification: 'required',
+    timeout: 60000,
+  }});
+  if (!assertion || toB64url(assertion.rawId) !== credId) return false;
+  const flags = new Uint8Array(assertion.response.authenticatorData)[32];
+  return (flags & 0x04) !== 0;   // UV bit: Face ID or the phone's passcode, not just a tap
+}
+
+async function unlockWithFaceId() {
+  const credId = localStorage.getItem('faceIdCredId');
+  if (!credId) return;
+  const sub = document.getElementById('lock-sub');
+  try {
+    if (await verifyFaceId(credId)) {
+      unlockSucceeded();
+      return;
+    }
+    if (sub) sub.textContent = 'Face ID did not confirm it was you — enter your passcode';
+  } catch (e) {
+    // NotAllowedError covers both a cancelled prompt and a failed scan
+    if (sub) sub.textContent = 'Face ID did not work — enter your passcode';
+    console.warn('Face ID:', e.name, e.message);
+  }
+}
+
+async function enableFaceId() {
+  if (!isLockEnabled()) {
+    toast('Set a passcode first', 'error');
+    return false;
+  }
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      challenge: randomBytes(32),
+      rp: { name: 'Shoe Stock' },
+      user: { id: faceIdUserHandle(), name: 'Shoe Stock', displayName: 'Shoe Stock' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        userVerification: 'required',
+        residentKey: 'preferred',
+      },
+      attestation: 'none',
+      timeout: 60000,
+    }});
+    if (!cred) return false;
+    localStorage.setItem('faceIdCredId', toB64url(cred.rawId));
+    localStorage.setItem('faceIdEnabled', '1');
+    return true;
+  } catch (e) {
+    // A cancelled prompt is a choice, not an error worth a message
+    if (e.name !== 'NotAllowedError') toast('Could not set up Face ID: ' + e.message, 'error');
+    return false;
+  }
+}
+
+function disableFaceId() {
+  localStorage.removeItem('faceIdEnabled');
+  localStorage.removeItem('faceIdCredId');
+}
+
+async function renderFaceIdSetting() {
+  const el = document.getElementById('faceid-setting');
+  if (!el) return;
+  if (!isLockEnabled() || !(await faceIdAvailable())) {
+    el.innerHTML = '';
+    return;
+  }
+  const on = isFaceIdEnabled();
+  el.innerHTML = `
+    <div class="field-row toggle-row faceid-row">
+      <div>
+        <div class="toggle-label" style="font-weight:600;">Unlock with Face ID</div>
+        <div class="hint" style="padding:0;margin-top:2px;">Tap the Face ID button on the lock screen. Your passcode still works whenever Face ID doesn't.</div>
+      </div>
+      <button class="toggle ${on ? 'on' : ''}" id="faceid-toggle" onclick="toggleFaceId()" aria-pressed="${on}"></button>
+    </div>`;
+}
+
+async function toggleFaceId() {
+  if (isFaceIdEnabled()) {
+    disableFaceId();
+    toast('Face ID unlock turned off', 'success');
+  } else if (await enableFaceId()) {
+    toast('Face ID unlock turned on ✓', 'success');
+  }
+  renderFaceIdSetting();
 }
 
 // ── Re-lock after being away ───────────────────────────────────────────────
@@ -242,3 +408,10 @@ window.lockNow           = lockNow;
 window.startSetPasscode  = startSetPasscode;
 window.removePasscode    = removePasscode;
 window.touchActivity     = touchActivity;
+window.isFaceIdEnabled   = isFaceIdEnabled;
+window.faceIdAvailable   = faceIdAvailable;
+window.unlockWithFaceId  = unlockWithFaceId;
+window.enableFaceId      = enableFaceId;
+window.disableFaceId     = disableFaceId;
+window.renderFaceIdSetting = renderFaceIdSetting;
+window.toggleFaceId      = toggleFaceId;

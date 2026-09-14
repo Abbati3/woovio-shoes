@@ -780,3 +780,23 @@ body.selecting #fab { display: none !important; }
 
 #price-key-legend { padding-top: 0; font-variant-numeric: tabular-nums; }
 #price-key-legend.bad { color: var(--danger); }
+
+/* ── Face ID ── */
+.lock-faceid {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 22px;
+  padding: 9px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--gold);
+  background: none;
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.lock-faceid svg { width: 22px; height: 22px; }
+.lock-faceid:active { background: rgba(201,168,76,0.16); }
+.faceid-row { border-top: 1px solid var(--border); }

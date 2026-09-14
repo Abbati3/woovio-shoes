@@ -5,6 +5,7 @@ const SETTINGS_KEY = 'main';
 const DEFAULTS = {
   id:           SETTINGS_KEY,
   businessName: 'Shoe Stock',
+  priceKey:     'MAKEPROFIT',
   locations: [
     { name: 'Shop',     partner: false },
     { name: 'Car boot', partner: false },
@@ -70,8 +71,14 @@ function renderSettingsView() {
 
       <div class="field-group">
         <div class="field-group-label">Customer View</div>
-        <p class="hint">Show a customer what you have without showing them your cost, profit, or where anything is kept. Every unsold pair appears, wherever it is being kept.${isLockEnabled() ? ' Your passcode is needed to leave it.' : ''}</p>
-        <div style="padding:0 16px 14px;">
+        <p class="hint">Show a customer what you have without showing them your cost, profit, or where anything is kept. Every unsold pair appears, wherever it is being kept. Prices show only as your price code, so the price is yours to open with.${isLockEnabled() ? ' Your passcode is needed to leave it.' : ''}</p>
+        <div class="field-row">
+          <label>Price code key — ten different letters for 1 2 3 4 5 6 7 8 9 0</label>
+          <input id="s-priceKey" type="text" maxlength="10" value="${esc(priceKey())}" autocapitalize="characters" autocorrect="off" spellcheck="false" oninput="previewPriceKey(this.value)" style="letter-spacing:3px;font-weight:600;" />
+        </div>
+        <div class="hint" id="price-key-legend"></div>
+        <div style="padding:6px 16px 14px;display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-outline" style="width:100%;" onclick="savePriceKey()">Save code key</button>
           <button class="btn btn-outline" style="width:100%;" onclick="enterCustomerView()">Show customer view</button>
         </div>
       </div>
@@ -128,6 +135,32 @@ function renderSettingsView() {
   renderLocationList();
   showStorageInfo();
   showVersion('settings-version');
+  previewPriceKey(priceKey());
+}
+
+// ── Price code key ─────────────────────────────────────────────────────────
+
+function previewPriceKey(raw) {
+  const el = document.getElementById('price-key-legend');
+  if (!el) return;
+  const k = String(raw || '').toUpperCase();
+  if (!isValidPriceKey(k)) {
+    el.classList.add('bad');
+    el.textContent = 'Needs exactly ten letters, none repeated.';
+    return;
+  }
+  el.classList.remove('bad');
+  const pairs = '1234567890'.split('').map((d, i) => `${d}=${k[i]}`).join('  ');
+  el.textContent = `${pairs}   ·   ₦55,000 shows as ${priceCode(55000, k)}, ₦48,500 as ${priceCode(48500, k)}`;
+}
+
+async function savePriceKey() {
+  const k = String(document.getElementById('s-priceKey').value || '').toUpperCase();
+  if (!isValidPriceKey(k)) { toast('The key needs ten different letters', 'error'); return; }
+  await saveSettings({ priceKey: k });
+  document.getElementById('s-priceKey').value = k;
+  previewPriceKey(k);
+  toast('Price code key saved ✓', 'success');
 }
 
 // Locations are edited in place; the array is only read back on save
@@ -244,3 +277,5 @@ window.renderSettingsView = renderSettingsView;
 window.addLocation        = addLocation;
 window.removeLocation     = removeLocation;
 window.submitSettings     = submitSettings;
+window.previewPriceKey    = previewPriceKey;
+window.savePriceKey       = savePriceKey;

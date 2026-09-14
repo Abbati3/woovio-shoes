@@ -132,12 +132,6 @@ body.customer-view #view-container { padding-bottom: calc(16px + var(--safe-bot)
 body.customer-view #fab { display: none !important; }
 body.customer-view .grid { padding-bottom: 24px; }
 
-.d-price {
-  font-size: 24px;
-  font-weight: 700;
-  text-align: center;
-  padding: 6px 0 18px;
-}
 
 .hdr-back {
   background: none; border: none; color: #fff;
@@ -725,3 +719,64 @@ body:has(#view-stock.active) #fab { display: flex; }
 }
 
 .sheet-actions { display: flex; flex-direction: column; }
+
+/* ── References, price codes, photo sending ── */
+.tile-ref {
+  position: absolute;
+  left: 6px; bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(28,28,28,0.72);
+  color: #fff;
+  letter-spacing: 0.2px;
+}
+.tile-check {
+  position: absolute;
+  right: 6px; bottom: 6px;
+  width: 24px; height: 24px;
+  border-radius: 12px;
+  background: var(--gold);
+  color: var(--dark);
+  font-size: 14px;
+  font-weight: 800;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.tile-selected { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.tile-selected .tile-check { display: flex; }
+body.selecting #fab { display: none !important; }
+
+.tile-code { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--muted); }
+.d-code {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--muted);
+  padding: 4px 0 2px;
+}
+.d-ref { text-align: center; font-size: 12px; color: var(--muted); padding-bottom: 16px; }
+
+.share-row { display: flex; gap: 8px; margin-top: 8px; }
+.share-btn {
+  flex: 1;
+  height: 36px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--dark);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.share-btn:active { border-color: var(--gold); }
+.share-go { background: var(--gold); border-color: var(--gold); }
+.share-go:disabled { opacity: 0.45; }
+.share-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+#price-key-legend { padding-top: 0; font-variant-numeric: tabular-nums; }
+#price-key-legend.bad { color: var(--danger); }

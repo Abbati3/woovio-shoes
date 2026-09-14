@@ -20,6 +20,7 @@ let _customerView = false;
 function isCustomerView() { return _customerView; }
 
 async function enterCustomerView() {
+  if (_selecting) cancelSelect();
   _customerView = true;
   document.body.classList.add('customer-view');
   _filter = { status: 'in_stock', location: 'all', size: 'all', q: '' };
@@ -75,8 +76,14 @@ function matchesFilter(sh) {
   if (_filter.location !== 'all' && sh.location !== _filter.location) return false;
   if (_filter.size !== 'all'    && String(sh.size) !== _filter.size)  return false;
   if (_filter.q) {
-    const hay = `${sh.brand||''} ${sh.model||''} ${sh.colour||''} ${sh.size||''} ${sh.notes||''}`.toLowerCase();
-    if (!hay.includes(_filter.q.toLowerCase())) return false;
+    const q = _filter.q.trim().toLowerCase();
+    // "#14" is a reference from a sent photo and names exactly one pair
+    if (/^#\d+$/.test(q)) {
+      if (`#${sh.id}` !== q) return false;
+    } else {
+      const hay = `${sh.brand||''} ${sh.model||''} ${sh.colour||''} ${sh.size||''} ${sh.notes||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
   }
   return true;
 }
@@ -119,6 +126,7 @@ function renderFilters() {
       ${sizeSelect}
     </div>
     ${clearRow}
+    <div id="share-bar"></div>
   `;
 }
 
@@ -169,6 +177,7 @@ function renderGrid() {
   if (!grid) return;
 
   const shown = _allShoes.filter(matchesFilter);
+  renderShareBar();
 
   if (!_allShoes.length) {
     tally.innerHTML = '';
@@ -201,20 +210,21 @@ function renderGrid() {
   }
 
   grid.innerHTML = shown.map(sh => {
-    // The customer sees the asking price only — never the agreed figure a
-    // partner sends back, which is what expectedOf() would give.
+    // No readable price for the customer — only your price code, so the price
+    // is yours to open with. Never the agreed figure a partner sends back.
     if (_customerView) return `
       <button class="tile" onclick="openShoe(${sh.id})">
         <div class="tile-photo">
           ${sh.photo
             ? `<img src="${sh.photo}" alt="${esc(shoeTitle(sh))}" loading="lazy" />`
             : `<div class="tile-nophoto">No photo</div>`}
+          <span class="tile-ref">#${sh.id}</span>
         </div>
         <div class="tile-info">
           <div class="tile-name">${esc(shoeTitle(sh))}</div>
           <div class="tile-meta">
             <span class="tile-size">${sh.size ? 'Size ' + esc(sh.size) : ''}</span>
-            <span class="tile-price">${fmtShort(sh.askingPrice)}</span>
+            <span class="tile-code">${esc(customerPriceCode(sh))}</span>
           </div>
         </div>
       </button>`;
@@ -223,14 +233,17 @@ function renderGrid() {
     const owed  = isOwed(sh);
     const aging = isAging(sh);
     const price = sold ? proceedsOf(sh) : expectedOf(sh);
+    const picked = _selecting && _selected.has(sh.id);
     return `
-      <button class="tile ${sold ? 'tile-sold' : ''}" onclick="openShoe(${sh.id})">
+      <button class="tile ${sold ? 'tile-sold' : ''} ${picked ? 'tile-selected' : ''}" data-id="${sh.id}" onclick="tileTap(${sh.id})">
         <div class="tile-photo">
           ${sh.photo
             ? `<img src="${sh.photo}" alt="${esc(shoeTitle(sh))}" loading="lazy" />`
             : `<div class="tile-nophoto">No photo</div>`}
           ${sold  ? `<span class="tile-badge ${owed ? 'badge-owed' : 'badge-sold'}">${owed ? 'Owed' : 'Sold'}</span>` : ''}
           ${aging ? `<span class="tile-badge badge-aging">${daysSince(sh.acquiredDate)}d</span>` : ''}
+          <span class="tile-ref">#${sh.id}</span>
+          <span class="tile-check">✓</span>
         </div>
         <div class="tile-info">
           <div class="tile-name">${esc(shoeTitle(sh))}</div>
@@ -242,6 +255,216 @@ function renderGrid() {
         </div>
       </button>`;
   }).join('');
+}
+
+// ── Sending photos ─────────────────────────────────────────────────────────
+//
+// Several photos go to the share sheet at once, so WhatsApp receives them as
+// one batch. Each sent copy is stamped with the pair and its reference: WhatsApp
+// can reorder images and drops a caption sent with them, so without it "the
+// fourth one" could mean any pair. The stored photo is never altered.
+
+const SHARE_LIMIT = 30;   // WhatsApp's cap on media in a single send
+let _selecting = false;
+let _selected  = new Set();
+let _prepared  = null;    // stamped files waiting on a fresh tap, when needed
+
+function isShareable(sh) { return sh.status === 'in_stock' && !!sh.photo; }
+
+function renderShareBar() {
+  const bar = document.getElementById('share-bar');
+  if (!bar) return;
+  if (_customerView) { bar.innerHTML = ''; return; }
+
+  if (_selecting) {
+    const n = _selected.size;
+    bar.innerHTML = `
+      <div class="share-row">
+        <button class="share-btn" onclick="cancelSelect()">Cancel</button>
+        <button class="share-btn share-go" ${n ? '' : 'disabled'} onclick="shareSelected()">Send ${n} photo${n === 1 ? '' : 's'}</button>
+      </div>
+      <div class="share-hint">Tap the pairs to send</div>`;
+    return;
+  }
+
+  const n = _allShoes.filter(matchesFilter).filter(isShareable).length;
+  bar.innerHTML = n ? `
+    <div class="share-row">
+      <button class="share-btn" onclick="startSelect()">Select photos</button>
+      <button class="share-btn" onclick="shareShown()">Send all ${n}</button>
+    </div>` : '';
+}
+
+function tileTap(id) {
+  if (!_selecting) { openShoe(id); return; }
+  const sh = _allShoes.find(x => x.id === id);
+  if (!sh || !isShareable(sh)) { toast('Only unsold pairs with a photo can be sent', 'error'); return; }
+  if (_selected.has(id)) {
+    _selected.delete(id);
+  } else {
+    if (_selected.size >= SHARE_LIMIT) { toast(`WhatsApp takes up to ${SHARE_LIMIT} photos at a time`, 'error'); return; }
+    _selected.add(id);
+  }
+  // Toggled in place rather than redrawing the grid, which would re-decode every photo
+  const tile = document.querySelector(`.tile[data-id="${id}"]`);
+  if (tile) tile.classList.toggle('tile-selected', _selected.has(id));
+  renderShareBar();
+}
+
+function startSelect() {
+  _selecting = true;
+  _selected  = new Set();
+  document.body.classList.add('selecting');
+  renderShareBar();
+}
+
+function cancelSelect() {
+  _selecting = false;
+  _selected.clear();
+  document.body.classList.remove('selecting');
+  document.querySelectorAll('.tile-selected').forEach(t => t.classList.remove('tile-selected'));
+  renderShareBar();
+}
+
+async function shareSelected() {
+  await sendPhotos(_allShoes.filter(x => _selected.has(x.id)));
+}
+
+async function shareShown() {
+  let list = _allShoes.filter(matchesFilter).filter(isShareable);
+  if (list.length > SHARE_LIMIT) {
+    if (!confirm(`WhatsApp takes up to ${SHARE_LIMIT} photos at a time. Send the first ${SHARE_LIMIT}?`)) return;
+    list = list.slice(0, SHARE_LIMIT);
+  }
+  await sendPhotos(list);
+}
+
+async function sendPhotos(list) {
+  list = list.filter(isShareable).slice(0, SHARE_LIMIT);
+  if (!list.length) { toast('No photos to send', 'error'); return; }
+
+  let files;
+  try {
+    files = await Promise.all(list.map(stampPhoto));
+  } catch (e) {
+    toast('Could not prepare the photos', 'error');
+    return;
+  }
+  if (!(navigator.canShare && navigator.canShare({ files }))) {
+    toast('This device cannot send several photos at once', 'error');
+    return;
+  }
+
+  try {
+    await navigator.share({ files });
+    afterSent();
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    // Preparing many images can outlast the tap that started it, and iOS then
+    // refuses to open the share sheet. A button gives it a fresh tap.
+    if (e.name === 'NotAllowedError') {
+      _prepared = files;
+      showReadySheet(files.length);
+      return;
+    }
+    toast('Could not send: ' + e.message, 'error');
+  }
+}
+
+function showReadySheet(n) {
+  const existing = document.getElementById('sheet');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'sheet';
+  el.innerHTML = `
+    <div class="sheet-overlay" onclick="closeSheet()"></div>
+    <div class="sheet-panel" id="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="d-title">${n} photo${n === 1 ? '' : 's'} ready</div>
+      <div class="d-sub" style="margin-bottom:16px;">Each one is labelled with the pair and its reference.</div>
+      <div class="sheet-actions">
+        <button class="btn btn-gold" style="width:100%;" onclick="sendPrepared()">Send</button>
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="closeSheet()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  openSheet(el);
+}
+
+async function sendPrepared() {
+  const files = _prepared;
+  _prepared = null;
+  if (!files) return;
+  // Called before anything is awaited, so it still counts as the user's tap
+  const pending = navigator.share({ files });
+  closeSheet();
+  try {
+    await pending;
+    afterSent();
+  } catch (e) {
+    if (e.name !== 'AbortError') toast('Could not send: ' + e.message, 'error');
+  }
+}
+
+function afterSent() {
+  if (_selecting) cancelSelect();
+}
+
+// A copy of the photo with a label strip beneath it — beneath rather than over,
+// so the label never covers the shoe itself.
+function stampPhoto(sh) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const band = Math.max(40, Math.round(Math.min(w, h) * 0.11));
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h + band;
+      const g = c.getContext('2d');
+      g.fillStyle = '#1C1C1C';
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(img, 0, 0, w, h);
+
+      const pad  = Math.round(band * 0.34);
+      const fs   = Math.round(band * 0.38);
+      const midY = h + band / 2;
+      const face = '-apple-system, "Helvetica Neue", Arial, sans-serif';
+      g.textBaseline = 'middle';
+
+      const ref = refCode(sh);
+      g.font = `700 ${fs}px ${face}`;
+      g.fillStyle = '#C9A84C';
+      g.textAlign = 'right';
+      g.fillText(ref, w - pad, midY);
+      const refWidth = g.measureText(ref).width;
+
+      const label = [shoeTitle(sh), sh.size ? 'Size ' + sh.size : ''].filter(Boolean).join(' · ');
+      g.font = `600 ${fs}px ${face}`;
+      g.fillStyle = '#FFFFFF';
+      g.textAlign = 'left';
+      g.fillText(fitText(g, label, w - pad * 3 - refWidth), pad, midY);
+
+      c.toBlob(b => b
+        ? resolve(new File([b], photoFileName(sh), { type: 'image/jpeg' }))
+        : reject(new Error('Could not encode image')), 'image/jpeg', 0.88);
+    };
+    img.onerror = () => reject(new Error('Could not read photo'));
+    img.src = sh.photo;
+  });
+}
+
+function fitText(g, text, maxWidth) {
+  if (g.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && g.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
+}
+
+function photoFileName(sh) {
+  const slug = [sh.brand, sh.model, sh.size].filter(Boolean).join('-')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `pair-${sh.id}${slug ? '-' + slug : ''}.jpg`;
 }
 
 // ── Item detail sheet ──────────────────────────────────────────────────────
@@ -262,7 +485,7 @@ async function openShoe(id) {
   const existing = document.getElementById('sheet');
   if (existing) existing.remove();
 
-  // Customer variant: the pair and its price, nothing about the business
+  // Customer variant: the pair and your price code, nothing about the business
   if (_customerView) {
     const cust = document.createElement('div');
     cust.id = 'sheet';
@@ -277,7 +500,8 @@ async function openShoe(id) {
           </div>
         </div>
         ${sh.photo ? `<img class="d-photo" src="${sh.photo}" alt="${esc(shoeTitle(sh))}" />` : ''}
-        <div class="d-price">${fmtNaira(sh.askingPrice)}</div>
+        <div class="d-code">${esc(customerPriceCode(sh))}</div>
+        <div class="d-ref">Ref #${sh.id}</div>
         <div class="sheet-actions">
           <button class="btn btn-outline" style="width:100%;" onclick="closeSheet()">Close</button>
         </div>
@@ -304,9 +528,11 @@ async function openShoe(id) {
       ${sh.photo ? `<img class="d-photo" src="${sh.photo}" alt="${esc(shoeTitle(sh))}" />` : ''}
 
       <div class="d-rows">
+        ${row('Ref', '#' + sh.id)}
         ${row('Place', esc(sh.location || '—'))}
         ${row('Cost', fmtNaira(sh.costPrice))}
         ${!sold ? row('Asking', fmtNaira(sh.askingPrice)) : ''}
+        ${!sold && sh.lowestPrice ? row('Lowest you take', fmtNaira(sh.lowestPrice)) : ''}
         ${partner && !sold && sh.agreedAmount != null && sh.agreedAmount !== '' ? row('Sends you if sold', fmtNaira(sh.agreedAmount)) : ''}
         ${sold ? row('Sold for', fmtNaira(sh.soldPrice)) : ''}
         ${sold ? row('Sold on', fmtDate(sh.soldDate)) : ''}
@@ -485,6 +711,10 @@ function renderForm(sh) {
           <label>Asking price (₦)</label>
           <input id="f-asking" type="number" min="0" step="0.01" value="${sh?.askingPrice ?? ''}" placeholder="0.00" />
         </div>
+        <div class="field-row">
+          <label>Lowest you'll take (₦) — optional, only you see it</label>
+          <input id="f-lowest" type="number" min="0" step="0.01" value="${sh?.lowestPrice ?? ''}" placeholder="0.00" />
+        </div>
       </div>
 
       <div class="field-group">
@@ -613,7 +843,14 @@ async function saveShoe() {
 
     const cost   = parseFloat(document.getElementById('f-cost').value)   || 0;
     const asking = parseFloat(document.getElementById('f-asking').value) || 0;
-    if (cost < 0 || asking < 0) { toast('Prices cannot be negative', 'error'); return; }
+    const lowestRaw = document.getElementById('f-lowest').value;
+    const lowest = lowestRaw === '' ? null : (parseFloat(lowestRaw) || 0);
+    if (cost < 0 || asking < 0 || (lowest != null && lowest < 0)) { toast('Prices cannot be negative', 'error'); return; }
+    if (lowest != null && asking > 0 && lowest > asking) {
+      toast('Lowest price is above the asking price', 'error');
+      document.getElementById('f-lowest').focus();
+      return;
+    }
 
     const location = document.getElementById('f-location').value;
     const partner  = isPartnerLocation(s, location);
@@ -631,6 +868,7 @@ async function saveShoe() {
       colour:       document.getElementById('f-colour').value.trim(),
       costPrice:    cost,
       askingPrice:  asking,
+      lowestPrice:  lowest,
       location,
       agreedAmount: agreed,
       acquiredDate: document.getElementById('f-acquired').value || today(),
@@ -890,3 +1128,11 @@ window.openMove          = openMove;
 window.onMoveLocationChange = onMoveLocationChange;
 window.confirmMove       = confirmMove;
 window.nudgeBackup       = nudgeBackup;
+window.tileTap           = tileTap;
+window.startSelect       = startSelect;
+window.cancelSelect      = cancelSelect;
+window.shareSelected     = shareSelected;
+window.shareShown        = shareShown;
+window.sendPrepared      = sendPrepared;
+window.renderShareBar    = renderShareBar;
+window.stampPhoto        = stampPhoto;

@@ -1,4 +1,4 @@
-const CACHE = 'shoes-v9';
+const CACHE = 'shoes-v10';
 
 const PRECACHE = [
   'index.html',

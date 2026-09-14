@@ -89,6 +89,42 @@ function isAging(shoe) {
   return shoe.status === 'in_stock' && daysSince(shoe.acquiredDate) >= AGING_DAYS;
 }
 
+// ── Reference and price codes ──────────────────────────────────────────────
+
+// The short reference stamped on sent photos, so "#14" in a client's reply
+// names exactly one pair however WhatsApp orders the images.
+function refCode(shoe) { return '#' + shoe.id; }
+
+// A trader's price code: ten different letters standing for 1 2 3 4 5 6 7 8 9 0,
+// written in thousands. A customer sees letters; you read the price.
+const DEFAULT_PRICE_KEY = 'MAKEPROFIT';
+
+function isValidPriceKey(k) {
+  k = String(k || '').toUpperCase();
+  return /^[A-Z]{10}$/.test(k) && new Set(k).size === 10;
+}
+
+function priceKey() {
+  const s = typeof getSettings === 'function' ? getSettings() : null;
+  const k = String((s && s.priceKey) || '').toUpperCase();
+  return isValidPriceKey(k) ? k : DEFAULT_PRICE_KEY;
+}
+
+function priceCode(amount, key) {
+  const v = Number(amount) || 0;
+  if (v <= 0) return '';
+  const k = key || priceKey();
+  const thousands = v / 1000;
+  const digits = Number.isInteger(thousands) ? String(thousands) : String(Math.round(thousands * 10) / 10);
+  // digit 1 is the key's first letter, … 9 the ninth, 0 the tenth
+  return digits.split('').map(ch => ch === '.' ? '.' : k[(Number(ch) + 9) % 10]).join('');
+}
+
+// Asking price, then the lowest you will take if one is set
+function customerPriceCode(shoe) {
+  return [priceCode(shoe.askingPrice), priceCode(shoe.lowestPrice)].filter(Boolean).join(' · ');
+}
+
 window.fmtNaira         = fmtNaira;
 window.fmtShort         = fmtShort;
 window.fmtDate          = fmtDate;
@@ -104,3 +140,9 @@ window.expectedOf       = expectedOf;
 window.shoeTitle        = shoeTitle;
 window.isAging          = isAging;
 window.AGING_DAYS       = AGING_DAYS;
+window.refCode          = refCode;
+window.isValidPriceKey  = isValidPriceKey;
+window.priceKey         = priceKey;
+window.priceCode        = priceCode;
+window.customerPriceCode = customerPriceCode;
+window.DEFAULT_PRICE_KEY = DEFAULT_PRICE_KEY;

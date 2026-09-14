@@ -1,4 +1,4 @@
-const CACHE = 'shoes-v14';
+const CACHE = 'shoes-v15';
 
 const PRECACHE = [
   'index.html',
@@ -35,7 +35,11 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // Both apps live on the same origin and share one cache storage, so only
+      // this app's own old versions are removed — never the receipts app's.
+      .then(keys => Promise.all(keys
+        .filter(k => k.startsWith('shoes-') && k !== CACHE)
+        .map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

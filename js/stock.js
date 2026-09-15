@@ -502,7 +502,7 @@ async function openShoe(id) {
             <div class="d-sub">${sh.size ? 'Size ' + esc(sh.size) : ''}${sh.colour ? ' · ' + esc(sh.colour) : ''}</div>
           </div>
         </div>
-        ${sh.photo ? `<img class="d-photo" src="${sh.photo}" alt="${esc(shoeTitle(sh))}" />` : ''}
+        ${galleryHtml(sh)}
         <div class="d-code">${esc(customerPriceCode(sh))}</div>
         <div class="d-ref">Ref #${sh.id}</div>
         <div class="sheet-actions">
@@ -528,7 +528,7 @@ async function openShoe(id) {
         ${sold ? `<span class="tile-badge ${owed?'badge-owed':'badge-sold'}" style="position:static;">${owed?'Owed':'Sold'}</span>` : ''}
       </div>
 
-      ${sh.photo ? `<img class="d-photo" src="${sh.photo}" alt="${esc(shoeTitle(sh))}" />` : ''}
+      ${galleryHtml(sh)}
 
       <div class="d-rows">
         ${row('Ref', '#' + sh.id)}
@@ -565,6 +565,39 @@ async function openShoe(id) {
   openSheet(el);
 }
 
+// ── Photos ─────────────────────────────────────────────────────────────────
+//
+// A pair has up to three photos. The first is its main photo: the one on the
+// tile, and the only one ever sent to customers. It stays in sh.photo, so
+// everything that shows or sends a pair keeps working unchanged; the others
+// sit in sh.extraPhotos and appear only when the pair is opened.
+
+const MAX_PHOTOS = 3;
+
+function photosOf(sh) {
+  return [sh.photo, ...(sh.extraPhotos || [])].filter(Boolean).slice(0, MAX_PHOTOS);
+}
+
+function galleryHtml(sh) {
+  const list = photosOf(sh);
+  if (!list.length) return '';
+  const alt = esc(shoeTitle(sh));
+  if (list.length === 1) return `<img class="d-photo" src="${list[0]}" alt="${alt}" />`;
+  return `
+      <div class="d-gallery-wrap">
+        <div class="d-gallery" onscroll="updateGalleryDots(this)">
+          ${list.map((p, i) => `<img src="${p}" alt="${alt} — photo ${i + 1}" />`).join('')}
+        </div>
+        <div class="d-dots">${list.map((_, i) => `<span class="${i ? '' : 'on'}"></span>`).join('')}</div>
+      </div>`;
+}
+
+function updateGalleryDots(strip) {
+  const i = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth));
+  strip.parentElement.querySelectorAll('.d-dots span')
+    .forEach((d, n) => d.classList.toggle('on', n === i));
+}
+
 // Every sheet is shown through here, so drag-to-dismiss is never forgotten on
 // a new one. The handle used to be decorative: with the panel up to 88vh tall
 // there was barely any overlay left to tap, so a tall sheet felt stuck.
@@ -575,13 +608,14 @@ function openSheet(el) {
 }
 
 function makeSheetDraggable(panel) {
-  let startY = 0, moved = 0, dragging = false;
+  let startX = 0, startY = 0, moved = 0, dragging = false;
 
   const start = e => {
     // Only from the top of the sheet, otherwise the drag fights the scroll
     if (panel.scrollTop > 0) return;
     dragging = true;
     moved = 0;
+    startX = (e.touches ? e.touches[0] : e).clientX;
     startY = (e.touches ? e.touches[0] : e).clientY;
     panel.style.transition = 'none';
     if (!e.touches) {
@@ -592,7 +626,10 @@ function makeSheetDraggable(panel) {
 
   const move = e => {
     if (!dragging) return;
-    moved = Math.max(0, (e.touches ? e.touches[0] : e).clientY - startY);
+    const pt = e.touches ? e.touches[0] : e;
+    // A sideways swipe is someone flicking through the photos — let it scroll
+    if (moved === 0 && Math.abs(pt.clientX - startX) > Math.abs(pt.clientY - startY)) { dragging = false; return; }
+    moved = Math.max(0, pt.clientY - startY);
     if (moved > 0) {
       if (e.cancelable) e.preventDefault();
       panel.style.transform = `translateY(${moved}px)`;
@@ -627,11 +664,12 @@ function closeSheet() {
 // ── Add / edit form ────────────────────────────────────────────────────────
 
 let _editingId = null;
-let _photoData = '';
+let _photos    = [];   // up to three; the first is the main photo
+let _photoSlot = 0;    // which one the picker is filling
 
 function openAdd() {
   _editingId = null;
-  _photoData = '';
+  _photos    = [];
   renderForm(null);
   navigate('form');
 }
@@ -642,7 +680,7 @@ async function openEdit(id) {
   if (!sh) return;
   closeSheet();
   _editingId = id;
-  _photoData = sh.photo || '';
+  _photos    = photosOf(sh);
   renderForm(sh);
   navigate('form');
 }
@@ -655,7 +693,7 @@ async function openAddLike(id) {
   if (!src) return;
   closeSheet();
   _editingId = null;
-  _photoData = src.photo || '';
+  _photos    = photosOf(src);
   renderForm({
     brand:        src.brand,
     model:        src.model,
@@ -691,14 +729,9 @@ function renderForm(sh, opts) {
     <div class="settings-list">
 
       <div class="field-group">
-        <div class="field-group-label">Photo</div>
+        <div class="field-group-label">Photos</div>
         <div style="padding:14px 16px;">
-          <div id="photo-preview" class="photo-preview">
-            ${_photoData ? `<img src="${_photoData}" alt="" />` : `<div class="photo-empty">The photo is how you will recognise this pair later</div>`}
-          </div>
-          <button class="btn btn-outline" style="width:100%;margin-top:10px;" onclick="pickPhoto()">
-            ${_photoData ? 'Replace photo' : 'Take or choose photo'}
-          </button>
+          <div id="photo-slots">${photoSlotsHtml()}</div>
           <!-- No capture attribute: it would force the camera and hide the
                photo library, so an existing picture could not be chosen.
                Kept visually hidden rather than display:none, which some
@@ -706,7 +739,6 @@ function renderForm(sh, opts) {
           <input id="photo-input" type="file" accept="image/*"
                  style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;"
                  onchange="handlePhoto(this)" />
-          ${_photoData ? `<button class="btn btn-outline" style="width:100%;margin-top:8px;height:40px;font-size:14px;color:var(--danger);border-color:var(--danger);" onclick="clearPhoto()">Remove photo</button>` : ''}
         </div>
       </div>
 
@@ -809,9 +841,52 @@ function onFormLocationChange() {
 
 // Photos are the bulk of this app's storage, so they are resized hard on the
 // way in rather than stored at camera resolution.
-function pickPhoto() {
+function pickPhoto(slot) {
+  _photoSlot = Math.min(slot ?? _photos.length, _photos.length, MAX_PHOTOS - 1);
   const input = document.getElementById('photo-input');
   if (input) input.click();
+}
+
+// The main photo large, with two smaller slots for the extra angles beside it
+function photoSlotsHtml() {
+  const main = _photos[0];
+  const extra = i => {
+    const p = _photos[i];
+    if (p) return `
+      <div class="ph-slot">
+        <img src="${p}" alt="" onclick="pickPhoto(${i})" />
+        <button class="ph-x" onclick="clearPhoto(${i})" aria-label="Remove photo">×</button>
+        <button class="ph-main" onclick="makeMainPhoto(${i})">Make main</button>
+      </div>`;
+    // Extras fill in order, so only the next free slot offers to add
+    return i === _photos.length && main
+      ? `<button class="ph-slot ph-add" onclick="pickPhoto(${i})">+ Add<br>angle</button>`
+      : `<div class="ph-slot ph-blank"></div>`;
+  };
+  return `
+    <div class="ph-grid">
+      <div class="ph-slot ph-big ${main ? '' : 'ph-add'}" ${main ? '' : 'onclick="pickPhoto(0)"'}>
+        ${main ? `
+          <img src="${main}" alt="" onclick="pickPhoto(0)" />
+          <button class="ph-x" onclick="clearPhoto(0)" aria-label="Remove photo">×</button>
+          <span class="ph-tag">Main · sent to customers</span>`
+        : `<div class="photo-empty">Tap to take or choose the main photo — the one on the tile and the one customers get</div>`}
+      </div>
+      <div class="ph-side">${extra(1)}${extra(2)}</div>
+    </div>
+    <div class="ph-hint">Up to 3 photos. Tap a photo to replace it. Extra angles show only when the pair is opened.</div>`;
+}
+
+function refreshPhotoSlots() {
+  const box = document.getElementById('photo-slots');
+  if (box) box.innerHTML = photoSlotsHtml();
+}
+
+function makeMainPhoto(i) {
+  if (!_photos[i]) return;
+  const [p] = _photos.splice(i, 1);
+  _photos.unshift(p);
+  refreshPhotoSlots();
 }
 
 function handlePhoto(input) {
@@ -820,9 +895,10 @@ function handlePhoto(input) {
   const reader = new FileReader();
   reader.onload = async e => {
     try {
-      _photoData = await resizePhoto(e.target.result, 800, 0.72);
-      const box = document.getElementById('photo-preview');
-      if (box) box.innerHTML = `<img src="${_photoData}" alt="" />`;
+      const data = await resizePhoto(e.target.result, 800, 0.72);
+      if (_photoSlot < _photos.length) _photos[_photoSlot] = data;
+      else if (_photos.length < MAX_PHOTOS) _photos.push(data);
+      refreshPhotoSlots();
       toast('Photo attached', 'success');
     } catch (err) {
       toast('Could not read that image', 'error');
@@ -834,10 +910,10 @@ function handlePhoto(input) {
   reader.readAsDataURL(file);
 }
 
-function clearPhoto() {
-  _photoData = '';
-  const box = document.getElementById('photo-preview');
-  if (box) box.innerHTML = `<div class="photo-empty">The photo is how you will recognise this pair later</div>`;
+// Removing the main photo moves the next one up to take its place
+function clearPhoto(i) {
+  _photos.splice(i, 1);
+  refreshPhotoSlots();
 }
 
 function resizePhoto(dataUrl, maxEdge, quality) {
@@ -893,7 +969,8 @@ async function saveShoe() {
     }
 
     const base = {
-      photo:        _photoData,
+      photo:        _photos[0] || '',
+      extraPhotos:  _photos.slice(1, MAX_PHOTOS),
       brand, model,
       colour:       document.getElementById('f-colour').value.trim(),
       costPrice:    cost,
@@ -936,7 +1013,7 @@ async function saveShoe() {
     }
 
     _editingId = null;
-    _photoData = '';
+    _photos    = [];
     navigate('stock');
     await renderStock();
   } catch (e) {
@@ -1268,6 +1345,8 @@ window.openEdit          = openEdit;
 window.pickPhoto         = pickPhoto;
 window.handlePhoto       = handlePhoto;
 window.clearPhoto        = clearPhoto;
+window.makeMainPhoto     = makeMainPhoto;
+window.updateGalleryDots = updateGalleryDots;
 window.onFormLocationChange = onFormLocationChange;
 window.saveShoe          = saveShoe;
 window.deleteShoe        = deleteShoe;

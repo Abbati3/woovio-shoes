@@ -102,7 +102,7 @@ function renderSettingsView() {
 
       <div class="field-group">
         <div class="field-group-label">Backup</div>
-        <p class="hint">One file with every pair, its photo, your places and settings. Keep it in Files or iCloud Drive — if the app is ever deleted, this is how everything comes back.</p>
+        <p class="hint">One file with every pair, its photos, your places and settings. Keep it in Files or iCloud Drive — if the app is ever deleted, this is how everything comes back.</p>
         <div id="last-backup" class="hint" style="padding-top:0;"></div>
         <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px;">
           <button class="btn btn-outline" style="width:100%;" onclick="backupData()">Export backup</button>
